@@ -126,7 +126,7 @@ void MSG_FSKSendData() {
 	SYSTEM_DelayMs(100);
 
 	{	// load the entire packet data into the TX FIFO buffer
-		for (size_t i = 0, j = 0; i < sizeof(dataPacket.serializedArray); i += 2, j++) {
+		for (size_t i = 0; i < sizeof(dataPacket.serializedArray); i += 2) {
         	BK4819_WriteRegister(BK4819_REG_5F, (dataPacket.serializedArray[i + 1] << 8) | dataPacket.serializedArray[i]);
     	}
 	}
