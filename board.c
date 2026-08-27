@@ -712,6 +712,7 @@ void BOARD_EEPROM_Init(void)
 	gSetting_ScrambleEnable    = (Data[6] < 2) ? Data[6] : true;
 	//gSetting_TX_EN             = (Data[7] & (1u << 0)) ? true : false;
 	gSetting_live_DTMF_decoder = (Data[7] & (1u << 1)) ? true : false;
+	gSetting_auto_store        = (Data[7] & (1u << 4)) ? false : true;   // inverted: erased = OFF
 	gSetting_battery_text      = (((Data[7] >> 2) & 3u) <= 2) ? (Data[7] >> 2) & 3 : 2;
 	gSetting_backlight_on_tx_rx = (Data[7] >> 6) & 3u;
 	// Read RxOffset setting

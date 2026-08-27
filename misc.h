@@ -166,6 +166,10 @@ extern bool                  gSetting_500TX;
 extern bool                  gSetting_350EN;
 extern uint8_t               gSetting_F_LOCK;
 extern bool                  gSetting_ScrambleEnable;
+// Feature #6 - auto-store scan hits. Persisted in bit 4 of the 0x0F40 block's
+// byte 7, which was unused. Sense is INVERTED so that erased EEPROM (0xFF)
+// reads as OFF: an automatic channel writer must not default to on.
+extern bool                  gSetting_auto_store;
 
 extern uint8_t               gSetting_backlight_on_tx_rx;
 

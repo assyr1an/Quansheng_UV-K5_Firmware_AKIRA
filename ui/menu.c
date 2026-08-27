@@ -64,6 +64,7 @@ const t_menu_item MenuList[] =
 	{"PriCh1", VOICE_ID_INVALID,                       MENU_PRI_CH1       },
 	{"PriCh2", VOICE_ID_INVALID,                       MENU_PRI_CH2       },
 	{"PriInt", VOICE_ID_INVALID,                       MENU_PRI_INT       },
+	{"AutoSv", VOICE_ID_INVALID,                       MENU_AUTO_SAVE     },
 	{"ScAdd2", VOICE_ID_INVALID,                       MENU_S_ADD2        },
 	{"ChSave", VOICE_ID_MEMORY_CHANNEL,                MENU_MEM_CH        }, // was "MEM-CH"
 	{"ChDele", VOICE_ID_DELETE_CHANNEL,                MENU_DEL_CH        }, // was "DEL-CH"
@@ -693,6 +694,7 @@ void UI_DisplayMenu(void)
 			case MENU_350TX:
 			case MENU_200TX:
 			case MENU_500TX:
+			case MENU_AUTO_SAVE:
 			case MENU_350EN:
 			case MENU_SCREN:
 				strcpy(String, gSubMenu_OFF_ON[gSubMenuSelection]);

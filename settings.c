@@ -177,6 +177,8 @@ void SETTINGS_SaveSettings(void)
 	State[6]  = gSetting_ScrambleEnable;
 	//if (!gSetting_TX_EN)             State[7] &= ~(1u << 0);
 	if (!gSetting_live_DTMF_decoder) State[7] &= ~(1u << 1);
+	// bit 4 was free; inverted so erased EEPROM (bit set) means OFF
+	if (gSetting_auto_store)         State[7] &= ~(1u << 4);
 	State[7] = (State[7] & ~(3u << 2)) | ((gSetting_battery_text & 3u) << 2);
 	State[7] = (State[7] & ~(3u << 6)) | ((gSetting_backlight_on_tx_rx & 3u) << 6);
 

@@ -23,6 +23,7 @@
 #include "app/menu.h"
 #include "app/scanner.h"
 #include "audio.h"
+#include "board.h"
 #include "driver/bk4819.h"
 #include "frequencies.h"
 #include "misc.h"
@@ -37,6 +38,8 @@ bool              gScanSingleFrequency; // scan CTCSS/DCS codes for current freq
 SCAN_SaveState_t  gScannerSaveState;
 uint8_t           gScanChannel;
 uint32_t          gScanFrequency;
+static uint8_t    autoStoreCount;   // auto-stores this scanning session
+static void       SCANNER_AutoStore(void);
 SCAN_CssState_t   gScanCssState;
 uint8_t           gScanProgressIndicator;
 bool              gScanUseCssResult;
@@ -374,6 +377,10 @@ void SCANNER_Start(bool singleFreq)
 void SCANNER_Stop(void)
 {
 	if(SCANNER_IsScanning()) {
+		// Reset the auto-store cap HERE, not in SCANNER_Start(): auto-store
+		// re-arms by calling SCANNER_Start(), so resetting there would clear
+		// the counter on every store and the cap would never apply.
+		autoStoreCount = 0;
 		gEeprom.CROSS_BAND_RX_TX = gBackup_CROSS_BAND_RX_TX;
 		gVfoConfigureMode        = VFO_CONFIGURE_RELOAD;
 		gFlagResetVfos           = true;
@@ -468,6 +475,7 @@ void SCANNER_TimeSlice10ms(void)
 					gScanCssState      = SCAN_CSS_STATE_FOUND;
 					gScanUseCssResult  = true;
 					gUpdateStatus      = true;
+					SCANNER_AutoStore();
 				}
 			}
 			else if (scanResult == BK4819_CSS_RESULT_CTCSS) {
@@ -478,6 +486,7 @@ void SCANNER_TimeSlice10ms(void)
 					gScanCssState      = SCAN_CSS_STATE_FOUND;
 					gScanUseCssResult  = true;
 					gUpdateStatus      = true;
+					SCANNER_AutoStore();
 					gScanCssResultType = CODE_TYPE_CONTINUOUS_TONE;
 					gScanCssResultCode = Code;
 				}
@@ -510,6 +519,83 @@ void SCANNER_TimeSlice10ms(void)
 
 }
 
+// ---------------------------------------------------------------------------
+// Feature #6 - scan-hit auto-store.
+//
+// The manual save path (SCANNER_Key_MENU, SCAN_SAVE_CHANNEL) already does the
+// hard parts: step rounding, carrying the discovered CTCSS/DCS across, and
+// writing the channel. This is the same work on a different trigger.
+//
+// Deliberate constraints:
+//  * Stores only into AUTO_STORE_FIRST..MR_CHANNEL_LAST, so the hand-built
+//    channel plan in the low slots can never be overwritten by an automatic
+//    writer. The plan is a preparedness artefact.
+//  * Capped per scanning session, so a noisy band cannot consume the block.
+//  * Deduped against what is already stored.
+//  * Writes EEPROM directly rather than via gRequestSaveChannel, which is only
+//    serviced at the end of ProcessKey() (app/app.c) - i.e. on key events. A
+//    scan-triggered store would otherwise sit unwritten until the user
+//    happened to press something.
+//  * Saves no channel NAME: with ENABLE_SPECTRUM_SHOW_CHANNEL_NAME on,
+//    SETTINGS_SaveChannelName() triggers BOARD_gMR_LoadChannels(), a full
+//    200-channel EEPROM re-read, per store.
+// ---------------------------------------------------------------------------
+#define AUTO_STORE_FIRST      150u   // reserve 0-149 for the hand-built plan
+#define AUTO_STORE_MAX_PER_RUN 20u
+
+
+static void SCANNER_AutoStore(void)
+{
+	if (!gSetting_auto_store || gScanSingleFrequency)
+		return;
+	if (autoStoreCount >= AUTO_STORE_MAX_PER_RUN)
+		return;
+	if (gScanFrequency == 0)
+		return;
+
+#ifdef ENABLE_SPECTRUM_SHOW_CHANNEL_NAME
+	// Already stored? gMR_ChannelFrequencyAttributes is the in-RAM channel
+	// table, so this costs no EEPROM reads.
+	if (BOARD_gMR_fetchChannel(gScanFrequency) >= 0)
+		return;
+#endif
+
+	// First free slot in the auto-store block. NOTE: testing
+	// gMR_ChannelAttributes[i].__val == 0xFF would be wrong here - the in-RAM
+	// copy has already had 0xFF rewritten to {__val=0, band=0xf} by
+	// BOARD_EEPROM_Init(). RADIO_CheckValidChannel() is the correct test.
+	uint8_t slot = 0xFF;
+	for (uint8_t i = AUTO_STORE_FIRST; i <= MR_CHANNEL_LAST; i++)
+	{
+		if (!RADIO_CheckValidChannel(i, false, 0))
+		{
+			slot = i;
+			break;
+		}
+	}
+	if (slot == 0xFF)
+		return;                       // block is full
+
+	RADIO_InitInfo(gTxVfo, slot, gScanFrequency);
+	if (gScanUseCssResult)
+	{
+		gTxVfo->freq_config_RX.CodeType = gScanCssResultType;
+		gTxVfo->freq_config_RX.Code     = gScanCssResultCode;
+	}
+	gTxVfo->freq_config_TX = gTxVfo->freq_config_RX;
+
+	SETTINGS_SaveChannel(slot, gEeprom.TX_VFO, gTxVfo, 1);
+	SETTINGS_UpdateChannel(slot, gTxVfo, true);
+
+	autoStoreCount++;
+	gUpdateStatus  = true;
+	gUpdateDisplay = true;
+
+	// The CSS scanner halts at SCAN_CSS_STATE_FOUND. Clearing the flag is not
+	// enough - re-arm the way SCANNER_Key_STAR() does, or it stops here.
+	SCANNER_Start(false);
+}
+
 void SCANNER_TimeSlice500ms(void)
 {
 	if (SCANNER_IsScanning() && gScannerSaveState == SCAN_SAVE_NO_PROMPT && gScanCssState < SCAN_CSS_STATE_FOUND) {
@@ -522,6 +608,9 @@ void SCANNER_TimeSlice500ms(void)
 				gScanCssState = SCAN_CSS_STATE_FAILED;
 
 			gUpdateStatus = true;
+
+			if (gScanCssState == SCAN_CSS_STATE_FOUND)
+				SCANNER_AutoStore();
 		}
 #endif
 		gUpdateDisplay = true;
