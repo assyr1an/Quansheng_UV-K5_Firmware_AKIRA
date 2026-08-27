@@ -205,7 +205,10 @@ void MSG_SendPacket() {
 		return;
 	} 
 
-	if ( strlen((char *)dataPacket.data.payload) > 0) {
+	// BOUNDS: payload[] is PAYLOAD_LENGTH bytes filled from the FSK FIFO with no
+	// guaranteed NUL. strlen() here would read past it into nonce[] and beyond the
+	// union. The test is only "is it non-empty", which is exactly payload[0] != 0.
+	if ( dataPacket.data.payload[0] != 0 ) {
 
 		msgStatus = SENDING;
 
@@ -216,7 +219,9 @@ void MSG_SendPacket() {
 		// display sent message (before encryption)
 		if (dataPacket.data.header != ACK_PACKET) {
 			moveUP(rxMessage);
-			sprintf(rxMessage[3], "> %s", dataPacket.data.payload);
+			// BOUNDS: sprintf() is unbounded on BOTH read and write. rxMessage[3] is
+			// PAYLOAD_LENGTH+2 bytes and payload[] has no guaranteed NUL. Bound both.
+			snprintf(rxMessage[3], PAYLOAD_LENGTH + 2, "> %.*s", (int)PAYLOAD_LENGTH, dataPacket.data.payload);
 			memset(lastcMessage, 0, sizeof(lastcMessage));
 			memcpy(lastcMessage, dataPacket.data.payload, PAYLOAD_LENGTH);
 			cIndex = 0;
@@ -384,12 +389,22 @@ void MSG_HandleReceive(){
 						gEncryptionKey,
 						256);
 				}
-				snprintf(rxMessage[3], PAYLOAD_LENGTH + 2, "< %s", dataPacket.data.payload);
+				// BOUNDS: the WRITE was already bounded, but the %s conversion still
+				// traverses the source to compute its return value, and payload[] comes
+				// straight off the wire with no guaranteed NUL. A precision bounds the
+				// READ too (external/printf/printf.c:798, _strnlen_s(p, precision)).
+				// THIS IS THE LIVE WIRE-DATA PATH IN OUR BUILD.
+				snprintf(rxMessage[3], PAYLOAD_LENGTH + 2, "< %.*s", (int)PAYLOAD_LENGTH, dataPacket.data.payload);
 			#else
-				snprintf(rxMessage[3], PAYLOAD_LENGTH + 2, "< %s", dataPacket.data.payload);
+				// BOUNDS: the WRITE was already bounded, but the %s conversion still
+				// traverses the source to compute its return value, and payload[] comes
+				// straight off the wire with no guaranteed NUL. A precision bounds the
+				// READ too (external/printf/printf.c:798, _strnlen_s(p, precision)).
+				// (This #else branch is the ENABLE_ENCRYPTION=0 build, not ours.)
+				snprintf(rxMessage[3], PAYLOAD_LENGTH + 2, "< %.*s", (int)PAYLOAD_LENGTH, dataPacket.data.payload);
 			#endif
 			#ifdef ENABLE_MESSENGER_UART
-				UART_printf("SMS<%s\r\n", dataPacket.data.payload);
+				UART_printf("SMS<%.*s\r\n", (int)PAYLOAD_LENGTH, dataPacket.data.payload);
 			#endif
 		}
 
@@ -511,6 +526,10 @@ void  MSG_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld) {
 			case KEY_UP:
 				memset(cMessage, 0, sizeof(cMessage));
 				memcpy(cMessage, lastcMessage, PAYLOAD_LENGTH);
+				// BOUNDS: lastcMessage[] is copied at full width with no guaranteed NUL, so
+				// strlen() could run past cMessage[] and leave cIndex > MAX_MSG_LENGTH, which
+				// would then index out of bounds on the next keypress.
+				cMessage[PAYLOAD_LENGTH - 1] = '\0';
 				cIndex = strlen(cMessage);
 				break;
 			/*case KEY_DOWN:

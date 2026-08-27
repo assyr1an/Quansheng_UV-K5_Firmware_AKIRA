@@ -378,12 +378,21 @@ bool UART_IsCommandAvailable(void)
 			return false;
 
 #if defined(ENABLE_MESSENGER) && defined(ENABLE_MESSENGER_UART)
-    if (strncmp(((char*)UART_DMA_Buffer) + gUART_WriteIndex, "SMS:",4) == 0)
+    // BOUNDS: UART_DMA_Buffer is a 256-byte ring (driver/uart.c:30) and
+    // gUART_WriteIndex may sit within 4 bytes of its end, so both the strncmp()
+    // and the read at +4 could run off the end of the buffer. Require the whole
+    // "SMS:" tag plus at least one payload byte to be in range first.
+    if (gUART_WriteIndex + 4u < sizeof(UART_DMA_Buffer) &&
+        strncmp(((char*)UART_DMA_Buffer) + gUART_WriteIndex, "SMS:",4) == 0)
     {
 
       char txMessage[PAYLOAD_LENGTH + 4];
       memset(txMessage, 0, sizeof(txMessage));
-      snprintf(txMessage, (PAYLOAD_LENGTH + 4), "%s", &UART_DMA_Buffer[gUART_WriteIndex + 4]);
+      // BOUNDS: %s without a precision scans until NUL, and the DMA ring carries no
+      // terminator guarantee. Clamp the read to what actually remains in the buffer.
+      const unsigned int smsAvail = sizeof(UART_DMA_Buffer) - (gUART_WriteIndex + 4u);
+      const unsigned int smsMax   = (smsAvail < (PAYLOAD_LENGTH + 3u)) ? smsAvail : (PAYLOAD_LENGTH + 3u);
+      snprintf(txMessage, (PAYLOAD_LENGTH + 4), "%.*s", (int)smsMax, &UART_DMA_Buffer[gUART_WriteIndex + 4]);
 
 			for (int i = 0; txMessage[i] != '\0'; i++)
 			{
