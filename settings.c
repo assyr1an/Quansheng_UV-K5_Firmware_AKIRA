@@ -29,9 +29,6 @@
 #include "settings.h"
 #include "board.h"
 
-#ifdef ENABLE_ENCRYPTION
-	#include "helper/crypto.h"
-#endif
 
 EEPROM_Config_t gEeprom;
 
@@ -191,9 +188,6 @@ void SETTINGS_SaveSettings(void)
 		EEPROM_WriteBuffer(0x0E88, State, true);
 	#endif
 
-	#ifdef ENABLE_ENCRYPTION
-		SETTINGS_SaveEncryptionKey();
-	#endif
 }
 
 void SETTINGS_SaveChannel(uint8_t Channel, uint8_t VFO, const VFO_Info_t *pVFO, uint8_t Mode)
@@ -282,14 +276,6 @@ void SETTINGS_SaveChannelName(uint8_t channel, const char * name)
 	EEPROM_WriteBuffer(0x0F58 + offset, buf + 8, true);
 }
 
-#ifdef ENABLE_ENCRYPTION
-void SETTINGS_SaveEncryptionKey()
-{
-	EEPROM_WriteBuffer(0x0F30, gEeprom.ENC_KEY, true);
-	EEPROM_WriteBuffer(0x0F38, gEeprom.ENC_KEY + 8, true);
-	gRecalculateEncKey = true;
-}
-#endif
 
 void SETTINGS_FetchChannelName(char *s, const int channel)
 {

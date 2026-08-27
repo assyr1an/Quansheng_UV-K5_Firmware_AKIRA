@@ -739,10 +739,6 @@ void BOARD_EEPROM_Init(void)
 			att->band = 0xf;
 		}
 	}
-	#ifdef ENABLE_ENCRYPTION
-		// 0F30..0F3F - load encryption key
-		EEPROM_ReadBuffer(0x0F30, gEeprom.ENC_KEY, sizeof(gEeprom.ENC_KEY));
-	#endif
 
 	#ifdef ENABLE_MESSENGER
 		// 1D00..1D27 - protocol v2 identity: K_master, sender_id, counter.

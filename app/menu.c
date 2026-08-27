@@ -249,9 +249,6 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
 		case MENU_AUTO_SAVE:
 		case MENU_350EN:
 		case MENU_SCREN:
-#ifdef ENABLE_ENCRYPTION
-		case MENU_MSG_ENC:
-#endif
 #ifdef ENABLE_MESSENGER
 		case MENU_MSG_RX:
 		case MENU_MSG_ACK:
@@ -510,18 +507,6 @@ void MENU_AcceptSetting(void)
 				break;
 		#endif
 
-		#ifdef ENABLE_ENCRYPTION
-			case MENU_ENC_KEY:
-				memset(gEeprom.ENC_KEY, 0, sizeof(gEeprom.ENC_KEY));
-				memmove(gEeprom.ENC_KEY, edit, sizeof(gEeprom.ENC_KEY));
-				memset(edit, 0, sizeof(edit));
-				gUpdateStatus        = true;
-				break;
-
-			case MENU_MSG_ENC:
-				gEeprom.MESSENGER_CONFIG.data.encrypt = gSubMenuSelection;
-				break;
-		#endif
 
 		#ifdef ENABLE_MESSENGER
 			case MENU_MSG_RX:
@@ -988,11 +973,6 @@ void MENU_ShowCurrentSetting(void)
     		gSubMenuSelection = gEeprom.RX_OFFSET;
 			break;
 
-		#ifdef ENABLE_ENCRYPTION
-			case MENU_MSG_ENC:
-				gSubMenuSelection = gEeprom.MESSENGER_CONFIG.data.encrypt;
-				break;
-		#endif
 
 		#ifdef ENABLE_MESSENGER
 			case MENU_MSG_RX:
@@ -1293,9 +1273,6 @@ static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
 	if (edit_index >= 0 && (
 		UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME
-		#ifdef ENABLE_ENCRYPTION
-			|| UI_MENU_GetCurrentMenuId() == MENU_ENC_KEY
-		#endif
 	))
 		
 	{	// currently editing the channel name
@@ -1569,30 +1546,6 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
 		return;
 	}
 
-	#ifdef ENABLE_ENCRYPTION
-		if (UI_MENU_GetCurrentMenuId() == MENU_ENC_KEY)
-		{
-			if (edit_index < 0)
-			{	// enter encryption key edit mode
-				// pad the encryption key out with '_'
-				edit_index = strlen(edit);
-				while (edit_index < 10)
-					edit[edit_index++] = '_';
-				edit[edit_index] = 0;
-				edit_index = 0;  // 'edit_index' is going to be used as the cursor position
-
-				return;
-			}
-			else if (edit_index >= 0 && edit_index < 10)
-			{	// editing the encryption key characters
-
-				if (++edit_index < 10)
-					return;	// next char
-
-				// exit, save encryption key
-			}
-		}
-	#endif
 
 	if (UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME)
 	{
@@ -1644,9 +1597,6 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
 		if (UI_MENU_GetCurrentMenuId() == MENU_RESET  ||
 			UI_MENU_GetCurrentMenuId() == MENU_MEM_CH ||
 			UI_MENU_GetCurrentMenuId() == MENU_DEL_CH ||
-			#ifdef ENABLE_ENCRYPTION
-				UI_MENU_GetCurrentMenuId() == MENU_ENC_KEY ||
-			#endif
 			UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME)
 		{
 			switch (gAskForConfirmation)
@@ -1759,9 +1709,6 @@ static void MENU_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
 		edit_index >= 0 &&
 		(
 			UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME
-			#ifdef ENABLE_ENCRYPTION
-				|| UI_MENU_GetCurrentMenuId() == MENU_ENC_KEY
-			#endif
 		)
 	)
 	{	// change the character
@@ -1929,9 +1876,6 @@ void MENU_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 			if (edit_index >= 0 &&
 				(
 					UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME
-					#ifdef ENABLE_ENCRYPTION
-						|| UI_MENU_GetCurrentMenuId() == MENU_ENC_KEY
-					#endif
 				)
 			)
 			{	// adds space,

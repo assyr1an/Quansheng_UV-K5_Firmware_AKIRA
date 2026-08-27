@@ -49,7 +49,6 @@ ENABLE_MESSENGER_DELIVERY_NOTIFICATION  := 1
 ENABLE_MESSENGER_FSK_MUTE               := 1
 ENABLE_MESSENGER_NOTIFICATION           := 1
 ENABLE_MESSENGER_UART                   := 0
-ENABLE_ENCRYPTION                       := 1
 
 #############################################################
 
@@ -162,10 +161,12 @@ OBJS += main.o
 ifeq ($(ENABLE_MESSENGER),1)
 	OBJS += app/messenger.o
 	OBJS += ui/messenger.o
-endif
-ifeq ($(ENABLE_ENCRYPTION),1)
+	# Protocol v2 crypto. Not optional and not behind a flag: every v2 frame is
+	# encrypted and authenticated, so a switch that turned this off would only
+	# offer a way to break the messenger. The v1 ENABLE_ENCRYPTION flag, its
+	# FNV-1 key derivation (helper/crypto.c) and the EncKey/MsgEnc menus are
+	# gone - see the protocol spec section 3.
 	OBJS += external/chacha/chacha.o
-	OBJS += helper/crypto.o
 	OBJS += helper/poly1305.o
 	OBJS += helper/v2frame.o
 endif
@@ -382,9 +383,6 @@ ifeq ($(ENABLE_MESSENGER_NOTIFICATION),1)
 endif
 ifeq ($(ENABLE_MESSENGER_UART),1)
 	CFLAGS  += -DENABLE_MESSENGER_UART
-endif
-ifeq ($(ENABLE_ENCRYPTION),1)
-	CFLAGS  += -DENABLE_ENCRYPTION
 endif
 
 LDFLAGS =

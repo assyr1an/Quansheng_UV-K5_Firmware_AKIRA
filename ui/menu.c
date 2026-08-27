@@ -38,9 +38,6 @@
 #include "ui/inputbox.h"
 #include "ui/menu.h"
 #include "ui/ui.h"
-#ifdef ENABLE_ENCRYPTION
-	#include "helper/crypto.h"
-#endif
 
 const t_menu_item MenuList[] =
 {
@@ -120,10 +117,6 @@ const t_menu_item MenuList[] =
 	{"RxMode", VOICE_ID_DUAL_STANDBY,                  MENU_TDR           },
 #ifdef ENABLE_PWRON_PASSWORD
 	{"Passwd", VOICE_ID_INVALID,                       MENU_PASSWORD      }, // power on password
-#endif
-#ifdef ENABLE_ENCRYPTION
-	{"EncKey", VOICE_ID_INVALID,                       MENU_ENC_KEY       }, // encryption key
-	{"MsgEnc", VOICE_ID_INVALID,                       MENU_MSG_ENC       }, // messenger encrypt outgoing messages
 #endif
 #ifdef ENABLE_MESSENGER
 	{"MsgRx",  VOICE_ID_INVALID,                       MENU_MSG_RX        }, // messenger rx
@@ -687,9 +680,6 @@ void UI_DisplayMenu(void)
 			#ifdef ENABLE_NOAA
 				case MENU_NOAA_S:
 			#endif
-			#ifdef ENABLE_ENCRYPTION
-				case MENU_MSG_ENC:
-			#endif
 			#ifdef ENABLE_MESSENGER
 				case MENU_MSG_RX:
 				case MENU_MSG_ACK:
@@ -801,37 +791,6 @@ void UI_DisplayMenu(void)
 				already_printed = true;
 				break;
 			}
-			#ifdef ENABLE_ENCRYPTION
-				case MENU_ENC_KEY:
-				{
-					if (!gIsInSubMenu)
-					{	// show placeholder in main menu
-						strcpy(String, "****");
-						UI_PrintString(String, menu_item_x1, menu_item_x2, 2, 8);
-					}
-					else
-					{	// show the key being edited
-						if (edit_index != -1 || gAskForConfirmation) {
-							UI_PrintString(edit, (menu_item_x1 -2), 0, 2, 8);
-							// show the cursor
-							if(edit_index < 10)
-								UI_PrintString(     "^", (menu_item_x1 -2) + (8 * edit_index), 0, 4, 8);  
-						}
-						else{
-							strcpy(String, "hashed value");
-							UI_PrintStringSmall(String, 20, 0, 5);
-
-							memset(String, 0, sizeof(String));
-							
-							CRYPTO_DisplayHash(gEeprom.ENC_KEY, String, sizeof(gEeprom.ENC_KEY));
-							UI_PrintString(String, (menu_item_x1 -2), 0, 2, 8);
-						}			
-					}
-
-					already_printed = true;
-					break;
-				}
-			#endif
 
 			#ifdef ENABLE_MESSENGER
 				case MENU_MSG_MODULATION:
@@ -1067,9 +1026,6 @@ void UI_DisplayMenu(void)
 
 	if ((UI_MENU_GetCurrentMenuId() == MENU_RESET    ||
 	     UI_MENU_GetCurrentMenuId() == MENU_MEM_CH   ||
-		 #ifdef ENABLE_ENCRYPTION
-			UI_MENU_GetCurrentMenuId() == MENU_ENC_KEY  ||
-		 #endif
 	     UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME ||
 	     UI_MENU_GetCurrentMenuId() == MENU_DEL_CH) && gAskForConfirmation)
 	{	// display confirmation

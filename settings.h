@@ -259,9 +259,6 @@ typedef struct {
 	uint32_t              POWER_ON_PASSWORD;
 	uint8_t				  PASSWORD_WRONG_ATTEMPTS;
 #endif
-#ifdef ENABLE_ENCRYPTION
-	char                  ENC_KEY[16];
-#endif
 #ifdef ENABLE_MESSENGER
 	MessengerConfig       MESSENGER_CONFIG;
 #endif
@@ -298,7 +295,4 @@ void SETTINGS_FetchChannelName(char *s, const int channel);
 void SETTINGS_SaveBatteryCalibration(const uint16_t * batteryCalibration);
 void SETTINGS_UpdateChannel(uint8_t channel, const VFO_Info_t *pVFO, bool keep);
 void SETTINGS_SetVfoFrequency(uint32_t frequency);
-#ifdef ENABLE_ENCRYPTION
-	void SETTINGS_SaveEncryptionKey();
-#endif
 #endif

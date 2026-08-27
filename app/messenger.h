@@ -113,7 +113,12 @@ typedef union {
     uint8_t
       receive    :1, // determines whether fsk modem will listen for new messages
       ack        :1, // determines whether the radio will automatically respond to messages with ACK
-      encrypt    :1, // determines whether outgoing messages will be encrypted
+      // Was `encrypt`. v2 has no unencrypted, unauthenticated mode to select,
+      // so the setting and its MsgEnc menu entry are gone. The bit is left in
+      // place rather than repacked: the byte lives at EEPROM 0x0EA3 and moving
+      // the other fields would silently reinterpret every already-programmed
+      // radio's settings.
+      unused3    :1,
       unused     :1,
       modulation :2, // determines FSK modulation type
       unused2    :2;
