@@ -447,6 +447,44 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 			// reached only from DISPLAY_MAIN, so this gives MAIN-SCREEN reach,
 			// not "from anywhere". A large improvement, not total coverage.
 			MSG_Init();
+			gPanicWipeArmed_500ms = 0;   // a plain wipe cancels a pending key wipe
+			gRequestDisplayScreen = DISPLAY_MAIN;
+			gUpdateDisplay        = true;
+			gBeepToPlay           = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+			break;
+
+		case ACTION_OPT_PANIC_WIPE_KEY:
+			// decision #10, decided 2026-08-28: two gestures.
+			//
+			// The messages go on the FIRST press, always - a panic press must
+			// never be wasted waiting for confirmation. K_master goes on a
+			// SECOND press within 3 seconds.
+			//
+			// The asymmetry is deliberate. Wiping messages costs nothing and is
+			// recoverable; wiping the key makes the radio useless for messaging
+			// until it is re-provisioned over a cable from the keyfile, which in
+			// the field may be neither to hand nor safe to produce. A gesture
+			// that expensive should not be reachable by one accidental press.
+			//
+			// But it IS what the wipe is for: MSG_Init() destroys the messages
+			// on this radio while leaving the key that decrypts every message
+			// anyone recorded off the air. Under a threat model that puts
+			// physical capture first, that is protecting the cheap half.
+			if (gPanicWipeArmed_500ms == 0)
+			{
+				MSG_Init();
+				gPanicWipeArmed_500ms = PANIC_WIPE_CONFIRM_500MS;
+			}
+			else
+			{
+				MSG_V2WipeIdentity();
+				// Re-arm the SAME window rather than clearing it, so the screen
+				// shows "KEY GONE" for three seconds. An irreversible action
+				// needs to say it happened; a double beep alone does not.
+				// Pressing again inside that window just re-wipes an already
+				// blank EEPROM - idempotent, and no burn (driver/eeprom.c:58).
+				gPanicWipeArmed_500ms = PANIC_WIPE_CONFIRM_500MS;
+			}
 			gRequestDisplayScreen = DISPLAY_MAIN;
 			gUpdateDisplay        = true;
 			gBeepToPlay           = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;

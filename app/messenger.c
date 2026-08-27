@@ -107,6 +107,8 @@ bool     gV2Provisioned;
 static uint32_t gV2Counter;
 static uint32_t gV2CounterLimit;
 
+uint8_t gPanicWipeArmed_500ms;
+
 uint16_t gErrorsDuringMSG;
 
 uint8_t hasNewMessage = 0;
@@ -247,6 +249,7 @@ void MSG_V2LoadIdentity(void)
 {
 	uint8_t identity[8];
 	uint8_t seen = 0;
+	uint8_t nonzero = 0;
 	uint8_t i;
 
 	EEPROM_ReadBuffer(V2_EEPROM_KEY_ADDR, gV2Key, V2_KEY_LEN);
@@ -256,13 +259,16 @@ void MSG_V2LoadIdentity(void)
 	gV2CounterLimit = MSG_GetLE32(&identity[4]);
 	gV2Counter      = gV2CounterLimit;
 
-	// An erased cell reads 0xFF. OR-ing every key byte together distinguishes
-	// "erased or never written" (0xFF / 0x00 throughout) from a real key
-	// without leaking anything about the key itself through a comparison.
-	for (i = 0; i < V2_KEY_LEN; i++)
-		seen |= (uint8_t)(gV2Key[i] ^ 0xFFu);
+	// An erased cell reads 0xFF; a wiped one could read 0x00. Reject BOTH -
+	// an all-zero key is not a key, and treating it as one would let a failed
+	// wipe or a blanked EEPROM look provisioned. Accumulated with OR rather
+	// than compared, so nothing about the key leaks through an early exit.
+	for (i = 0; i < V2_KEY_LEN; i++) {
+		seen    |= (uint8_t)(gV2Key[i] ^ 0xFFu);   // non-zero unless all 0xFF
+		nonzero |= gV2Key[i];                      // non-zero unless all 0x00
+	}
 
-	gV2Provisioned = (seen != 0) &&
+	gV2Provisioned = (seen != 0) && (nonzero != 0) &&
 	                 (gV2SenderId != 0xFFFFFFFFu) && (gV2SenderId != 0u) &&
 	                 (gV2CounterLimit != 0xFFFFFFFFu);
 
@@ -298,6 +304,32 @@ static bool MSG_V2ReserveCounter(void)
 	}
 
 	return true;
+}
+
+// Destroy the v2 identity in EEPROM and in RAM. See messenger.h.
+//
+// Written as 0xFF, not 0x00, so the result is indistinguishable from a radio
+// that was never provisioned - both to the firmware's own check and to anyone
+// who dumps the EEPROM afterwards. A block of zeros in a field of 0xFF would
+// announce that something used to be here.
+void MSG_V2WipeIdentity(void)
+{
+	static const uint8_t blank[8] = {
+		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
+	};
+	uint8_t i;
+
+	// EEPROM first. If the operator pulls the battery halfway through this,
+	// the key must already be the part that is gone.
+	for (i = 0; i < (V2_KEY_LEN / 8u); i++)
+		EEPROM_WriteBuffer(V2_EEPROM_KEY_ADDR + (i * 8u), blank, true);
+	EEPROM_WriteBuffer(V2_EEPROM_IDENTITY_ADDR, blank, true);
+
+	memset(gV2Key, 0, sizeof(gV2Key));
+	gV2SenderId     = 0;
+	gV2Counter      = 0;
+	gV2CounterLimit = 0;
+	gV2Provisioned  = false;
 }
 
 // Was moveUP(): three unrolled strcpy's that copied the entire log on every

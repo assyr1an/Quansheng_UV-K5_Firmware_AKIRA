@@ -34,6 +34,7 @@
 #include "settings.h"
 #include "ui/helper.h"
 #include "ui/inputbox.h"
+#include "app/messenger.h"
 #include "ui/main.h"
 #include "ui/ui.h"
 
@@ -254,6 +255,28 @@ void UI_DisplayMain(void)
 		ST7565_BlitFullScreen();
 		return;
 	}
+
+	#ifdef ENABLE_MESSENGER
+		// WIPE+KEY is armed: the messages are already gone, and a second press
+		// within the window destroys K_master. Say so plainly - a gesture this
+		// expensive must never fire on a press the operator did not know was
+		// the second one. Doing nothing until the window lapses is the safe
+		// outcome, so the prompt names the destructive action, not the escape.
+		if (gPanicWipeArmed_500ms > 0) {
+			// Two lines, same shape as the keypad-lock prompt above.
+			// UI_DisplayPopup() is deliberately not used: it is single-line
+			// and appends "Press EXIT", which would be a lie here - EXIT does
+			// nothing, the window simply lapses.
+			UI_PrintString("MSGS WIPED", 0, LCD_WIDTH, 1, 8);
+			// Second line reads off the actual state, so no extra flag is
+			// needed to tell "armed" from "done" - and an unprovisioned radio
+			// correctly says there was never a key to destroy.
+			UI_PrintString(gV2Provisioned ? "AGAIN=KEY" : "KEY GONE",
+			               0, LCD_WIDTH, 3, 8);
+			ST7565_BlitFullScreen();
+			return;
+		}
+	#endif
 
 	if (gEeprom.KEY_LOCK && gKeypadLocked > 0)
 	{	// tell user how to unlock the keyboard

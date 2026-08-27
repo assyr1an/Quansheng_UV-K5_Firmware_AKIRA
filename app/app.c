@@ -1390,6 +1390,18 @@ void APP_TimeSlice500ms(void)
 	{
 	}
 
+	#ifdef ENABLE_MESSENGER
+		// The WIPE+KEY confirmation window. Expiring it here rather than on a
+		// key event matters: if the radio is put down mid-gesture the window
+		// must close on its own, or a later accidental press finishes a wipe
+		// the operator has long since abandoned.
+		if (gPanicWipeArmed_500ms > 0)
+		{
+			if (--gPanicWipeArmed_500ms == 0)
+				gUpdateDisplay = true;   // drop the prompt
+		}
+	#endif
+
 	if (gReducedService)
 	{
 		BOARD_ADC_GetBatteryInfo(&gBatteryCurrentVoltage);

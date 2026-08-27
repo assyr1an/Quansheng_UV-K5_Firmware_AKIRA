@@ -107,6 +107,20 @@ extern bool     gV2Provisioned;
 
 void MSG_V2LoadIdentity(void);
 
+// Destroy K_master, sender_id and the counter - in EEPROM as well as RAM.
+// This is the half of the panic wipe that matters under the threat model:
+// MSG_Init() clears the messages on the radio, but the key is what decrypts
+// every message anyone recorded off the air (the protocol spec section 10).
+// After this the radio refuses to transmit until it is re-provisioned over the
+// cable (decision #10).
+void MSG_V2WipeIdentity(void);
+
+// Counts down in APP_TimeSlice500ms(). Non-zero means the first press of a
+// WIPE+KEY gesture has landed and the second press - within the window - will
+// destroy the key. Zero means disarmed.
+extern uint8_t gPanicWipeArmed_500ms;
+#define PANIC_WIPE_CONFIRM_500MS  6u   // 3 seconds
+
 // MessengerConfig                            // 2024 kamilsss655
 typedef union {
   struct {

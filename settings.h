@@ -108,7 +108,8 @@ enum {
 	ACTION_OPT_BANDWIDTH,
 	ACTION_OPT_SPECTRUM,
 #ifdef ENABLE_MESSENGER
-	ACTION_OPT_PANIC_WIPE,   // feature #3 - wipe every plaintext buffer
+	ACTION_OPT_PANIC_WIPE,       // feature #3 - wipe every plaintext buffer
+	ACTION_OPT_PANIC_WIPE_KEY,   // ...and, on a second press, K_master itself
 #endif
 	ACTION_OPT_LEN
 };
