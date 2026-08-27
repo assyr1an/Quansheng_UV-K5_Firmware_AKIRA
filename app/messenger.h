@@ -115,6 +115,18 @@ void MSG_V2LoadIdentity(void);
 // cable (decision #10).
 void MSG_V2WipeIdentity(void);
 
+// Replay / duplicate suppression (the protocol spec section 7).
+//
+// Four entries of (sender_id, counter) = 32 bytes. RAM only, and deliberately:
+// the table records who we have been talking to, which is exactly the kind of
+// thing a captured radio should not be carrying, and losing it on a reboot
+// costs at most one re-displayed message.
+//
+// Four is enough for a flat broadcast group of this size. When it fills, the
+// oldest slot is reused - only frames that have already AUTHENTICATED ever
+// reach the table, so an attacker cannot churn it without the key.
+#define V2_DEDUP_SIZE  4u
+
 // Counts down in APP_TimeSlice500ms(). Non-zero means the first press of a
 // WIPE+KEY gesture has landed and the second press - within the window - will
 // destroy the key. Zero means disarmed.

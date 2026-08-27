@@ -109,6 +109,28 @@ static uint32_t gV2CounterLimit;
 
 uint8_t gPanicWipeArmed_500ms;
 
+// Replay window: the highest counter authenticated from each sender we have
+// heard. See messenger.h for why it is four entries and RAM-only.
+static struct {
+	uint32_t sender_id;
+	uint32_t counter;
+} gV2Seen[V2_DEDUP_SIZE];
+static uint8_t gV2SeenNext;   // round-robin slot to reuse once the table fills
+
+// The message we are waiting to be acknowledged. v1 marked "the last line" and
+// trusted arrival order; v2 knows exactly which transaction an ACK names, so
+// an ACK for anything else is now ignored instead of marking the wrong message
+// delivered.
+static uint32_t gPendingAckCounter;
+static bool     gAckPending;
+
+// What MSG_V2CheckReplay() decided about an authenticated frame.
+enum {
+	V2_RX_NEW = 0,        // never seen: accept, display, remember
+	V2_RX_DUPLICATE,      // exactly the counter we last saw: re-ACK, do NOT display
+	V2_RX_REPLAY          // older than what we have seen: drop silently
+};
+
 uint16_t gErrorsDuringMSG;
 
 uint8_t hasNewMessage = 0;
@@ -332,6 +354,37 @@ void MSG_V2WipeIdentity(void)
 	gV2Provisioned  = false;
 }
 
+// Classify an already-AUTHENTICATED frame against the replay window, and
+// remember it if it is new. Must never be called on a frame whose tag has not
+// verified - the whole point is that only genuine frames move the window, so a
+// forged one cannot push a sender's counter forward and lock out the real
+// radio.
+static uint8_t MSG_V2CheckReplay(uint32_t sender_id, uint32_t counter)
+{
+	uint8_t i;
+
+	for (i = 0; i < V2_DEDUP_SIZE; i++) {
+		if (gV2Seen[i].sender_id != sender_id)
+			continue;
+
+		if (counter == gV2Seen[i].counter)
+			return V2_RX_DUPLICATE;
+		if (counter < gV2Seen[i].counter)
+			return V2_RX_REPLAY;
+
+		gV2Seen[i].counter = counter;
+		return V2_RX_NEW;
+	}
+
+	// A sender we have not heard from, or one that fell out of the table.
+	// Accept it: the frame authenticated, so the only cost of being wrong is
+	// re-displaying one message we had already seen before the eviction.
+	gV2Seen[gV2SeenNext].sender_id = sender_id;
+	gV2Seen[gV2SeenNext].counter   = counter;
+	gV2SeenNext = (gV2SeenNext + 1u) % V2_DEDUP_SIZE;
+	return V2_RX_NEW;
+}
+
 // Was moveUP(): three unrolled strcpy's that copied the entire log on every
 // message. At 16 entries that would have been 15 strcpy's and several hundred
 // bytes of flash for nothing. A head index does the same job in O(1).
@@ -403,6 +456,11 @@ void MSG_SendPacket() {
 			prevKey = 0;
 			prevLetter = 0;
 			memset(cMessage, 0, sizeof(cMessage));
+
+			// Remember WHICH transaction, not just which log line. An ACK now
+			// has to name this exact counter to mark it delivered.
+			gPendingAckCounter = gV2Counter;
+			gAckPending        = true;
 		}
 
 		// Build the authenticated frame. Every frame is encrypted and MACed -
@@ -521,6 +579,13 @@ void MSG_Init() {
 	memset(&rxDecoded, 0, sizeof(rxDecoded));
 	memset(gMsgFrame, 0, sizeof(gMsgFrame));
 	txType = V2_TYPE_ENC_MSG;
+	// The replay window is a record of WHO we have been talking to and how much
+	// - traffic analysis a captured radio should not be carrying. The wipe
+	// reaches it, and the outstanding-ACK state with it.
+	memset(gV2Seen, 0, sizeof(gV2Seen));
+	gV2SeenNext        = 0;
+	gPendingAckCounter = 0;
+	gAckPending        = false;
 	msgLogHead       = 0;
 	msgLogCount      = 0;
 	msgLogScroll     = 0;
@@ -577,47 +642,82 @@ void MSG_HandleReceive(){
 		return;
 	}
 
+	// THE REPLAY GATE, and it comes second for a reason: only a frame that has
+	// authenticated is allowed to move a sender's counter forward. If a forged
+	// frame could touch the window it would lock out the real radio.
+	const uint8_t verdict = MSG_V2CheckReplay(rxDecoded.sender_id, rxDecoded.counter);
+
+	if (verdict == V2_RX_REPLAY) {
+		// An old frame, captured off the air and sent again. It is genuine, so
+		// it authenticates perfectly - the counter is the only thing that tells
+		// us it is not new. Drop it without a sound.
+		return;
+	}
+
 	if (rxDecoded.type == V2_TYPE_ACK || rxDecoded.type == V2_TYPE_ENC_ACK) {
+		// A repeated ACK is not evidence of anything new. Ignore it outright
+		// rather than re-running the match.
+		if (verdict == V2_RX_DUPLICATE)
+			return;
+
 	#ifdef ENABLE_MESSENGER_DELIVERY_NOTIFICATION
-		#ifdef ENABLE_MESSENGER_UART
-			UART_printf("SVC<RCPT\r\n");
-		#endif
-		// Feature #2 bug fix: this was rxMessage[3][0] - "the last line". Only
-		// correct if nothing arrived between sending and the ACK.
+		// Feature #2 bug fix, completed here. This was rxMessage[3][0] - "the
+		// last line" - which marked the wrong message whenever something
+		// arrived between sending and the ACK. Storing the index fixed half of
+		// it; the other half was that ANY ACK marked the pending message
+		// delivered, including one acknowledging somebody else's traffic or a
+		// transaction we had already finished.
 		//
-		// The ACK now carries the (sender_id, counter) it acknowledges, in
-		// rxDecoded.payload[0..7], and it is authenticated. Step 5 will match
-		// that against the pending message instead of trusting arrival order.
-		rxMessage[msgPendingAckIdx][0] = '+';
-		gUpdateStatus = true;
-		gUpdateDisplay = true;
+		// The ACK names the exact (sender_id, counter) it acknowledges, in
+		// payload[0..7], and that payload is covered by the MAC. So we can
+		// simply require it to match the message actually outstanding.
+		if (gAckPending &&
+		    MSG_GetLE32(&rxDecoded.payload[0]) == gV2SenderId &&
+		    MSG_GetLE32(&rxDecoded.payload[4]) == gPendingAckCounter)
+		{
+			#ifdef ENABLE_MESSENGER_UART
+				UART_printf("SVC<RCPT\r\n");
+			#endif
+			rxMessage[msgPendingAckIdx][0] = '+';
+			gAckPending    = false;
+			gUpdateStatus  = true;
+			gUpdateDisplay = true;
+		}
 	#endif
 		return;
 	}
 
-	MSG_LogPush();
-	// BOUNDS: the payload is 30 bytes off the wire with no guaranteed NUL, so
-	// the %s conversion is bounded on the READ as well as the write
-	// (external/printf/printf.c:798, _strnlen_s(p, precision)).
-	snprintf(rxMessage[msgLogHead], PAYLOAD_LENGTH + 2, "< %.*s", (int)PAYLOAD_LENGTH, (const char *)rxDecoded.payload);
-	#ifdef ENABLE_MESSENGER_UART
-		UART_printf("SMS<%.*s\r\n", (int)PAYLOAD_LENGTH, (const char *)rxDecoded.payload);
-	#endif
+	// A message. Display it only if it is genuinely new - a duplicate falls
+	// straight through to the re-ACK below, which is precisely what makes the
+	// sender's retry safe: it gets its acknowledgement without the operator
+	// seeing the same message twice.
+	if (verdict == V2_RX_NEW) {
+		MSG_LogPush();
+		// BOUNDS: the payload is 30 bytes off the wire with no guaranteed NUL,
+		// so the %s conversion is bounded on the READ as well as the write
+		// (external/printf/printf.c:798, _strnlen_s(p, precision)).
+		snprintf(rxMessage[msgLogHead], PAYLOAD_LENGTH + 2, "< %.*s", (int)PAYLOAD_LENGTH, (const char *)rxDecoded.payload);
+		#ifdef ENABLE_MESSENGER_UART
+			UART_printf("SMS<%.*s\r\n", (int)PAYLOAD_LENGTH, (const char *)rxDecoded.payload);
+		#endif
 
-	if ( gScreenToDisplay != DISPLAY_MSG ) {
-		hasNewMessage = 1;
-		gUpdateStatus = true;
-		gUpdateDisplay = true;
-	#ifdef ENABLE_MESSENGER_NOTIFICATION
-		gPlayMSGRing = true;
-	#endif
-	}
-	else {
-		gUpdateDisplay = true;
+		if ( gScreenToDisplay != DISPLAY_MSG ) {
+			hasNewMessage = 1;
+			gUpdateStatus = true;
+			gUpdateDisplay = true;
+		#ifdef ENABLE_MESSENGER_NOTIFICATION
+			gPlayMSGRing = true;
+		#endif
+		}
+		else {
+			gUpdateDisplay = true;
+		}
 	}
 
-	// Acknowledge the message we just authenticated. Naming its sender and
-	// counter is what lets the far end tell this ACK from any other.
+	// Acknowledge it - new or duplicate. A duplicate almost always means our
+	// previous ACK was lost, so staying silent would guarantee the sender keeps
+	// retrying. The ACK gets a fresh counter of its own, so it is a new frame
+	// on the air even though it names the same message.
 	if(gEeprom.MESSENGER_CONFIG.data.ack)
 	{
 		const uint32_t ackSenderId = rxDecoded.sender_id;
