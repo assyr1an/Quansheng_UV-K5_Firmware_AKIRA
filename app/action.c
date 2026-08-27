@@ -19,6 +19,9 @@
 
 #include <string.h>
 
+#ifdef ENABLE_MESSENGER
+#include "app/messenger.h"
+#endif
 #include "app/action.h"
 #include "app/app.h"
 #include "app/chFrScanner.h"
@@ -431,6 +434,24 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 		case ACTION_OPT_SPECTRUM:
 			ACTION_RunSpectrum();
 			break;
+#ifdef ENABLE_MESSENGER
+		case ACTION_OPT_PANIC_WIPE:
+			// Feature #3. MSG_Init() already wipes every plaintext buffer - the
+			// message ring, the compose buffer and the recall buffer. What it
+			// lacked was REACH: MSG_ProcessKeys() is dispatched only from
+			// DISPLAY_MSG (app/app.c), so the existing long-press F gesture only
+			// worked while the messenger screen was open. The threat model's
+			// "radio seized while on" case is overwhelmingly the main screen.
+			//
+			// NOTE, and the plan was corrected on this: ACTION_Handle() is
+			// reached only from DISPLAY_MAIN, so this gives MAIN-SCREEN reach,
+			// not "from anywhere". A large improvement, not total coverage.
+			MSG_Init();
+			gRequestDisplayScreen = DISPLAY_MAIN;
+			gUpdateDisplay        = true;
+			gBeepToPlay           = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+			break;
+#endif
 #ifdef ENABLE_BLMIN_TMP_OFF
 		case ACTION_OPT_BLMIN_TMP_OFF:
 			ACTION_BlminTmpOff();

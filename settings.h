@@ -107,6 +107,9 @@ enum {
 #endif
 	ACTION_OPT_BANDWIDTH,
 	ACTION_OPT_SPECTRUM,
+#ifdef ENABLE_MESSENGER
+	ACTION_OPT_PANIC_WIPE,   // feature #3 - wipe every plaintext buffer
+#endif
 	ACTION_OPT_LEN
 };
 

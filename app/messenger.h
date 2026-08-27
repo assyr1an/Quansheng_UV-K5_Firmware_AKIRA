@@ -42,7 +42,27 @@ typedef enum KeyboardType {
 extern KeyboardType keyboardType;
 extern uint16_t gErrorsDuringMSG;
 extern char cMessage[PAYLOAD_LENGTH];
-extern char rxMessage[4][PAYLOAD_LENGTH + 2];
+// Feature #2 - bounded RAM ring log. 16 entries x 32 bytes = 512 bytes RAM
+// against ~8,900 free. RAM ONLY: nothing here is ever written to EEPROM, which
+// is the point - a message log that survives a power cycle is a liability under
+// the threat model (the security design).
+// 16 is a power of two so the wrap is a mask, not a divide - the Cortex-M0 has
+// no divide instruction.
+#define MSG_LOG_SIZE   16u
+#define MSG_LOG_MASK   (MSG_LOG_SIZE - 1u)
+// Rows the messenger screen can show at once: the region above the compose
+// line is 4 rows at 7px pitch (ui/messenger.c).
+#define MSG_LOG_LINES  4u
+
+extern char    rxMessage[MSG_LOG_SIZE][PAYLOAD_LENGTH + 2];
+extern uint8_t msgLogHead;      // index of the NEWEST entry
+extern uint8_t msgLogCount;     // entries actually used, saturating at MSG_LOG_SIZE
+extern uint8_t msgLogScroll;    // 0 = newest page; how far back the display is scrolled
+
+// n = 0 is the newest entry, 1 the one before it, and so on.
+#define MSG_LOG_AT(n)  rxMessage[(msgLogHead - (n)) & MSG_LOG_MASK]
+
+void MSG_LogPush(void);         // advance the head and clear the new newest entry
 extern uint8_t hasNewMessage;
 extern uint8_t keyTickCounter;
 

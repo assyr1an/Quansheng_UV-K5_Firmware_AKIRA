@@ -61,7 +61,13 @@ unsigned char numberOfNumsAssignedToKey[9] = { 1, 1, 1, 1, 1, 1, 1, 1, 1 };
 
 char cMessage[PAYLOAD_LENGTH];
 char lastcMessage[PAYLOAD_LENGTH];
-char rxMessage[4][PAYLOAD_LENGTH + 2];
+char    rxMessage[MSG_LOG_SIZE][PAYLOAD_LENGTH + 2];
+uint8_t msgLogHead;
+uint8_t msgLogCount;
+uint8_t msgLogScroll;
+// Index of the message we are awaiting an ACK for - a stored index, not "the
+// last line". See MSG_LogPush().
+uint8_t msgPendingAckIdx;
 unsigned char cIndex = 0;
 unsigned char prevKey = 0, prevLetter = 0;
 KeyboardType keyboardType = UPPERCASE;
@@ -184,14 +190,18 @@ void MSG_EnableRX(const bool enable) {
 
 // -----------------------------------------------------
 
-void moveUP(char (*rxMessages)[PAYLOAD_LENGTH + 2]) {
-    // Shift existing lines up
-    strcpy(rxMessages[0], rxMessages[1]);
-	strcpy(rxMessages[1], rxMessages[2]);
-	strcpy(rxMessages[2], rxMessages[3]);
-
-    // Insert the new line at the last position
-	memset(rxMessages[3], 0, sizeof(rxMessages[3]));
+// Was moveUP(): three unrolled strcpy's that copied the entire log on every
+// message. At 16 entries that would have been 15 strcpy's and several hundred
+// bytes of flash for nothing. A head index does the same job in O(1).
+void MSG_LogPush(void)
+{
+	msgLogHead = (msgLogHead + 1u) & MSG_LOG_MASK;
+	memset(rxMessage[msgLogHead], 0, sizeof(rxMessage[msgLogHead]));
+	if (msgLogCount < MSG_LOG_SIZE)
+		msgLogCount++;
+	// A new arrival jumps the view back to the newest entry, otherwise a message
+	// can land off-screen while the user is reading history.
+	msgLogScroll = 0;
 }
 
 void MSG_SendPacket() {
@@ -218,10 +228,13 @@ void MSG_SendPacket() {
 
 		// display sent message (before encryption)
 		if (dataPacket.data.header != ACK_PACKET) {
-			moveUP(rxMessage);
-			// BOUNDS: sprintf() is unbounded on BOTH read and write. rxMessage[3] is
+			MSG_LogPush();
+			// Remember WHICH entry this is so the ACK marker lands on the right
+			// line even if a message arrives between sending and the ACK.
+			msgPendingAckIdx = msgLogHead;
+			// BOUNDS: sprintf() is unbounded on BOTH read and write. The entry is
 			// PAYLOAD_LENGTH+2 bytes and payload[] has no guaranteed NUL. Bound both.
-			snprintf(rxMessage[3], PAYLOAD_LENGTH + 2, "> %.*s", (int)PAYLOAD_LENGTH, dataPacket.data.payload);
+			snprintf(rxMessage[msgLogHead], PAYLOAD_LENGTH + 2, "> %.*s", (int)PAYLOAD_LENGTH, dataPacket.data.payload);
 			memset(lastcMessage, 0, sizeof(lastcMessage));
 			memcpy(lastcMessage, dataPacket.data.payload, PAYLOAD_LENGTH);
 			cIndex = 0;
@@ -339,9 +352,15 @@ void MSG_StorePacket(const uint16_t interrupt_bits) {
 }
 
 void MSG_Init() {
+	// Feature #3: this IS the panic wipe. Everything holding plaintext is cleared
+	// here, so any new plaintext buffer must be added to this list as well.
 	memset(rxMessage, 0, sizeof(rxMessage));
 	memset(cMessage, 0, sizeof(cMessage));
 	memset(lastcMessage, 0, sizeof(lastcMessage));
+	msgLogHead       = 0;
+	msgLogCount      = 0;
+	msgLogScroll     = 0;
+	msgPendingAckIdx = 0;
 	hasNewMessage = 0;
 	msgStatus = READY;
 	prevKey = 0;
@@ -368,14 +387,18 @@ void MSG_HandleReceive(){
 		#ifdef ENABLE_MESSENGER_UART
 			UART_printf("SVC<RCPT\r\n");
 		#endif
-		rxMessage[3][0] = '+';
+		// Feature #2 bug fix: this was rxMessage[3][0] - "the last line". Only
+		// correct if nothing arrived between sending and the ACK. If a message
+		// DID arrive, moveUP() shifted the array and the '+' landed on the wrong
+		// message, silently reporting a different one as delivered.
+		rxMessage[msgPendingAckIdx][0] = '+';
 		gUpdateStatus = true;
 		gUpdateDisplay = true;
 	#endif
 	} else {
-		moveUP(rxMessage);
+		MSG_LogPush();
 		if (dataPacket.data.header >= INVALID_PACKET) {
-			snprintf(rxMessage[3], PAYLOAD_LENGTH + 2, "ERROR: INVALID PACKET.");
+			snprintf(rxMessage[msgLogHead], PAYLOAD_LENGTH + 2, "ERROR: INVALID PACKET.");
 		}
 		else
 		{
@@ -394,14 +417,14 @@ void MSG_HandleReceive(){
 				// straight off the wire with no guaranteed NUL. A precision bounds the
 				// READ too (external/printf/printf.c:798, _strnlen_s(p, precision)).
 				// THIS IS THE LIVE WIRE-DATA PATH IN OUR BUILD.
-				snprintf(rxMessage[3], PAYLOAD_LENGTH + 2, "< %.*s", (int)PAYLOAD_LENGTH, dataPacket.data.payload);
+				snprintf(rxMessage[msgLogHead], PAYLOAD_LENGTH + 2, "< %.*s", (int)PAYLOAD_LENGTH, dataPacket.data.payload);
 			#else
 				// BOUNDS: the WRITE was already bounded, but the %s conversion still
 				// traverses the source to compute its return value, and payload[] comes
 				// straight off the wire with no guaranteed NUL. A precision bounds the
 				// READ too (external/printf/printf.c:798, _strnlen_s(p, precision)).
 				// (This #else branch is the ENABLE_ENCRYPTION=0 build, not ours.)
-				snprintf(rxMessage[3], PAYLOAD_LENGTH + 2, "< %.*s", (int)PAYLOAD_LENGTH, dataPacket.data.payload);
+				snprintf(rxMessage[msgLogHead], PAYLOAD_LENGTH + 2, "< %.*s", (int)PAYLOAD_LENGTH, dataPacket.data.payload);
 			#endif
 			#ifdef ENABLE_MESSENGER_UART
 				UART_printf("SMS<%.*s\r\n", (int)PAYLOAD_LENGTH, dataPacket.data.payload);
@@ -524,6 +547,14 @@ void  MSG_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld) {
 				processBackspace();
 				break;
 			case KEY_UP:
+				// While scrolled back, UP scrolls forward again; only at the
+				// newest page does it keep its original "recall last message"
+				// behaviour on the compose line.
+				if (msgLogScroll > 0) {
+					msgLogScroll--;
+					gUpdateDisplay = true;
+					break;
+				}
 				memset(cMessage, 0, sizeof(cMessage));
 				memcpy(cMessage, lastcMessage, PAYLOAD_LENGTH);
 				// BOUNDS: lastcMessage[] is copied at full width with no guaranteed NUL, so
@@ -532,8 +563,13 @@ void  MSG_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld) {
 				cMessage[PAYLOAD_LENGTH - 1] = '\0';
 				cIndex = strlen(cMessage);
 				break;
-			/*case KEY_DOWN:
-				break;*/
+			case KEY_DOWN:
+				// Scroll back through history. The view shows MSG_LOG_LINES
+				// entries, so the furthest useful scroll is count - lines.
+				if (msgLogCount > MSG_LOG_LINES && msgLogScroll < (uint8_t)(msgLogCount - MSG_LOG_LINES))
+					msgLogScroll++;
+				gUpdateDisplay = true;
+				break;
 			case KEY_MENU:
 				// Send message
 				MSG_Send(cMessage);

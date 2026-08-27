@@ -61,11 +61,24 @@ void UI_DisplayMSG(void) {
 	
 	uint8_t mPos = 8;
 	const uint8_t mLine = 7;
-	for (int i = 0; i < 4; ++i) {
-		//sprintf(String, "%s", rxMessage[i]);
-		GUI_DisplaySmallest(rxMessage[i], 2, mPos, false, true);
+	// Feature #2: the log is a 16-entry ring, but only MSG_LOG_LINES rows fit.
+	// Draw oldest-at-top within the visible window so reading order is natural:
+	// row 0 is the furthest back on this page, the last row the most recent.
+	// msgLogScroll is how many entries back the window is scrolled (0 = newest).
+	for (uint8_t i = 0; i < MSG_LOG_LINES; ++i) {
+		const uint8_t back = (uint8_t)(msgLogScroll + (MSG_LOG_LINES - 1u - i));
+		if (back < msgLogCount)
+			GUI_DisplaySmallest(MSG_LOG_AT(back), 2, mPos, false, true);
 		mPos += mLine;
-    }
+	}
+
+	// Position indicator, shown only while scrolled back - at the newest page it
+	// would just be clutter.
+	if (msgLogScroll > 0) {
+		memset(String, 0, sizeof(String));
+		sprintf(String, "-%u/%u", msgLogScroll, msgLogCount);
+		GUI_DisplaySmallest(String, 104, 8, false, true);
+	}
 
 	// TX Screen
 	
