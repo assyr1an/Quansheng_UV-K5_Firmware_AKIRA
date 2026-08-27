@@ -32,6 +32,7 @@
 #include "driver/backlight.h"
 #include "driver/bk4819.h"
 #include "driver/crc.h"
+#include "app/activity.h"
 #include "driver/eeprom.h"
 #include "driver/gpio.h"
 #include "driver/uart.h"
@@ -118,6 +119,22 @@ typedef struct {
 		uint8_t  GlitchIndicator;
 	} Data;
 } REPLY_0527_t;
+
+// Feature #4 - activity log dump. Reply-only, like CMD_0527/0529.
+// One command returns the whole ring: 24 x 8 = 192 bytes of entries plus 4 of
+// header, well inside the 256-byte UART_Command buffer and the DMA ring.
+typedef struct {
+	Header_t Header;
+	struct {
+		uint8_t  Count;        // entries used
+		uint8_t  Head;         // index of the newest
+		uint8_t  Size;         // ACTIVITY_LOG_SIZE, so the host can sanity-check
+		uint8_t  Padding;
+		uint32_t UptimeTicks;  // 10ms ticks NOW, so the host can render entries
+		                       // as "how long ago" - there is no RTC to ask
+		ActivityEntry_t Entries[ACTIVITY_LOG_SIZE];
+	} Data;
+} REPLY_05A1_t;
 
 typedef struct {
 	Header_t Header;
@@ -312,6 +329,26 @@ static void CMD_0527(void)
 	Reply.Data.RSSI             = BK4819_ReadRegister(BK4819_REG_67) & 0x01FF;
 	Reply.Data.ExNoiseIndicator = BK4819_ReadRegister(BK4819_REG_65) & 0x007F;
 	Reply.Data.GlitchIndicator  = BK4819_ReadRegister(BK4819_REG_63);
+
+	SendReply(&Reply, sizeof(Reply));
+}
+
+// Feature #4. Read-only: it returns the log and changes nothing, so it is safe
+// to poll. Deliberately does NOT clear the log on read - a dropped reply would
+// otherwise lose data silently, and the host can dedupe on (freq, timeTicks).
+static void CMD_05A0(void)
+{
+	REPLY_05A1_t Reply;
+
+	Reply.Header.ID   = 0x05A1;
+	Reply.Header.Size = sizeof(Reply.Data);
+
+	Reply.Data.Count       = gActivityLogCount;
+	Reply.Data.Head        = gActivityLogHead;
+	Reply.Data.Size        = ACTIVITY_LOG_SIZE;
+	Reply.Data.Padding     = 0;
+	Reply.Data.UptimeTicks = SCHEDULER_UptimeTicks();
+	memcpy(Reply.Data.Entries, gActivityLog, sizeof(Reply.Data.Entries));
 
 	SendReply(&Reply, sizeof(Reply));
 }
@@ -511,6 +548,10 @@ void UART_HandleCommand(void)
 
 		case 0x0527:
 			CMD_0527();
+			break;
+
+		case 0x05A0:
+			CMD_05A0();
 			break;
 
 		case 0x0529:

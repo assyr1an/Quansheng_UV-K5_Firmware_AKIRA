@@ -171,6 +171,8 @@ extern bool                  gSetting_ScrambleEnable;
 // reads as OFF: an automatic channel writer must not default to on.
 extern bool                  gSetting_auto_store;
 
+uint32_t SCHEDULER_UptimeTicks(void);   // 10ms ticks since boot (scheduler.c)
+
 extern uint8_t               gSetting_backlight_on_tx_rx;
 
 extern bool                  gSetting_live_DTMF_decoder;

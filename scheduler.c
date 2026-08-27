@@ -47,6 +47,15 @@
 
 static volatile uint32_t gGlobalSysTickCounter;
 
+// The only monotonic counter in the firmware - the DP32G030 has no RTC and
+// SysTick is used purely for busy-wait delays (driver/systick.c). Exposed for
+// feature #4's activity log. 10ms per tick, so a uint32_t wraps after ~497
+// days; the radio will not stay powered that long, so there is no wrap handling.
+uint32_t SCHEDULER_UptimeTicks(void)
+{
+	return gGlobalSysTickCounter;
+}
+
 void SystickHandler(void);
 
 // we come here every 10ms

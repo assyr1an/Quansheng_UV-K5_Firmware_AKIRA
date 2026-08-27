@@ -32,6 +32,7 @@
 #include "functions.h"
 #include "frequencies.h"
 #include "driver/system.h"
+#include "app/activity.h"
 #include "app/messenger.h"
 #include "ui/ui.h"
 #ifdef ENABLE_ENCRYPTION
@@ -361,6 +362,9 @@ void MSG_Init() {
 	msgLogCount      = 0;
 	msgLogScroll     = 0;
 	msgPendingAckIdx = 0;
+	// Feature #4 section 4.5: the activity log is plaintext intelligence about
+	// what we monitored and when. The wipe must reach it too.
+	ACTIVITY_Clear();
 	hasNewMessage = 0;
 	msgStatus = READY;
 	prevKey = 0;

@@ -105,6 +105,7 @@ endif
 
 # Main
 OBJS += app/action.o
+OBJS += app/activity.o
 ifeq ($(ENABLE_AIRCOPY),1)
 	OBJS += app/aircopy.o
 endif

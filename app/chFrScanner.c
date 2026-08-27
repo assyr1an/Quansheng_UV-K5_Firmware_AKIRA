@@ -1,5 +1,6 @@
 
 #include "app/app.h"
+#include "app/activity.h"
 #include "app/chFrScanner.h"
 #include "functions.h"
 #include "misc.h"
@@ -126,6 +127,10 @@ void CHFRSCANNER_Found(void)
 		lastFoundFrqOrChan = gRxVfo->freq_config_RX.Frequency;
 	}
 
+	// Feature #4. This is the single call site for scan hits, and it has already
+	// worked out what we want to record. Note the coverage limit documented in
+	// activity.h: the spectrum analyser never reaches here.
+	ACTIVITY_Record(lastFoundFrqOrChan, IS_MR_CHANNEL(gRxVfo->CHANNEL_SAVE));
 
 	gScanKeepResult = true;
 }
