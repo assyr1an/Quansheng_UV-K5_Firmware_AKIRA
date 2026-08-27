@@ -20,6 +20,9 @@
 #include <string.h>
 
 #include "app/dtmf.h"
+#ifdef ENABLE_MESSENGER
+	#include "app/messenger.h"
+#endif
 #ifdef ENABLE_FMRADIO
 	#include "app/fm.h"
 #endif
@@ -739,6 +742,14 @@ void BOARD_EEPROM_Init(void)
 	#ifdef ENABLE_ENCRYPTION
 		// 0F30..0F3F - load encryption key
 		EEPROM_ReadBuffer(0x0F30, gEeprom.ENC_KEY, sizeof(gEeprom.ENC_KEY));
+	#endif
+
+	#ifdef ENABLE_MESSENGER
+		// 1D00..1D27 - protocol v2 identity: K_master, sender_id, counter.
+		// Loaded here rather than in MSG_Init() so that a UART write to that
+		// range, which already triggers a BOARD_EEPROM_Init(), picks up a newly
+		// provisioned key without a reboot.
+		MSG_V2LoadIdentity();
 	#endif
 
 	#ifdef ENABLE_SPECTRUM_SHOW_CHANNEL_NAME

@@ -166,6 +166,8 @@ endif
 ifeq ($(ENABLE_ENCRYPTION),1)
 	OBJS += external/chacha/chacha.o
 	OBJS += helper/crypto.o
+	OBJS += helper/poly1305.o
+	OBJS += helper/v2frame.o
 endif
 
 ifeq ($(OS), Windows_NT)

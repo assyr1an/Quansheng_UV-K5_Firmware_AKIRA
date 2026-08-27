@@ -35,9 +35,8 @@
 #include "app/activity.h"
 #include "app/messenger.h"
 #include "ui/ui.h"
-#ifdef ENABLE_ENCRYPTION
-	#include "helper/crypto.h"
-#endif
+#include "driver/eeprom.h"
+#include "helper/v2frame.h"
 #ifdef ENABLE_MESSENGER_UART
     #include "driver/uart.h"
 #endif
@@ -75,7 +74,38 @@ KeyboardType keyboardType = UPPERCASE;
 
 MsgStatus msgStatus = READY;
 
-union DataPacket dataPacket;
+// The v2 wire buffer, and the plaintext a verified frame decodes into. They are
+// separate on purpose: nothing from a frame reaches the display, the log, or
+// the UART until the Poly1305 tag has verified. v1 had no such gate - a wrong
+// key produced garbage on screen and a forged frame was indistinguishable from
+// a real one.
+uint8_t     gMsgFrame[V2_FRAME_LEN];
+static V2Message_t rxDecoded;
+
+// Plaintext staged for transmission. Held apart from gMsgFrame because
+// V2_Encode() writes the ciphertext, and we still want the cleartext for the
+// local "sent" log line.
+static uint8_t txPayload[V2_PAYLOAD_LEN];
+static uint8_t txType;
+
+// ---- v2 identity (the protocol spec section 3) ------------------------
+// K_master, sender_id and the counter live at EEPROM 0x1D00 - the one gap the
+// CHIRP driver never writes (PROG_SIZE = 0x1d00), so a CHIRP upload cannot
+// clobber them. Provisioned over UART from the host; nothing here generates a
+// key, because this radio has no entropy source worth trusting
+// (the RNG measurements).
+uint8_t  gV2Key[V2_KEY_LEN];
+uint32_t gV2SenderId;
+bool     gV2Provisioned;
+
+// gV2Counter is the next counter to hand out. gV2CounterLimit is the value
+// already committed to EEPROM: every counter below it is spent as far as a
+// future boot is concerned. Writing EEPROM once per message would destroy the
+// cell, so counters are reserved 64 at a time and a reboot simply skips the
+// remainder of the block. Losing up to 63 counter values costs nothing -
+// uniqueness is the only requirement a nonce has.
+static uint32_t gV2Counter;
+static uint32_t gV2CounterLimit;
 
 uint16_t gErrorsDuringMSG;
 
@@ -133,8 +163,8 @@ void MSG_FSKSendData() {
 	SYSTEM_DelayMs(100);
 
 	{	// load the entire packet data into the TX FIFO buffer
-		for (size_t i = 0; i < sizeof(dataPacket.serializedArray); i += 2) {
-        	BK4819_WriteRegister(BK4819_REG_5F, (dataPacket.serializedArray[i + 1] << 8) | dataPacket.serializedArray[i]);
+		for (size_t i = 0; i < sizeof(gMsgFrame); i += 2) {
+        	BK4819_WriteRegister(BK4819_REG_5F, (gMsgFrame[i + 1] << 8) | gMsgFrame[i]);
     	}
 	}
 
@@ -142,9 +172,14 @@ void MSG_FSKSendData() {
 	BK4819_FskEnableTx();
 
 	{
-		// allow up to 310ms for the TX to complete
-		// if it takes any longer then somethings gone wrong, we shut the TX down
-		unsigned int timeout = 1000 / 5;
+		// Allow up to 2000ms for the TX to complete; if it takes longer then
+		// something has gone wrong and we shut the TX down.
+		//
+		// v1 used 1000ms - and its comment claimed 310ms, which was simply
+		// wrong (the protocol spec section 2). A 56-byte v2 frame needs 996ms
+		// of payload airtime at FSK-450 before preamble and the 4-byte sync are
+		// counted, so 1000ms would have cut the slowest modulation off mid-frame.
+		unsigned int timeout = 2000 / 5;
 
 		while (timeout-- > 0)
 		{
@@ -191,6 +226,80 @@ void MSG_EnableRX(const bool enable) {
 
 // -----------------------------------------------------
 
+static void MSG_PutLE32(uint8_t *p, uint32_t v)
+{
+	p[0] = (uint8_t)(v >> 0);
+	p[1] = (uint8_t)(v >> 8);
+	p[2] = (uint8_t)(v >> 16);
+	p[3] = (uint8_t)(v >> 24);
+}
+
+static uint32_t MSG_GetLE32(const uint8_t *p)
+{
+	return ((uint32_t)p[0]) | ((uint32_t)p[1] << 8) |
+	       ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+// Load K_master, sender_id and the counter from EEPROM 0x1D00. Called from
+// BOARD_EEPROM_Init(), so a UART write to that range followed by the existing
+// EEPROM reload picks up a freshly provisioned key without a reboot.
+void MSG_V2LoadIdentity(void)
+{
+	uint8_t identity[8];
+	uint8_t seen = 0;
+	uint8_t i;
+
+	EEPROM_ReadBuffer(V2_EEPROM_KEY_ADDR, gV2Key, V2_KEY_LEN);
+	EEPROM_ReadBuffer(V2_EEPROM_IDENTITY_ADDR, identity, sizeof(identity));
+
+	gV2SenderId     = MSG_GetLE32(&identity[0]);
+	gV2CounterLimit = MSG_GetLE32(&identity[4]);
+	gV2Counter      = gV2CounterLimit;
+
+	// An erased cell reads 0xFF. OR-ing every key byte together distinguishes
+	// "erased or never written" (0xFF / 0x00 throughout) from a real key
+	// without leaking anything about the key itself through a comparison.
+	for (i = 0; i < V2_KEY_LEN; i++)
+		seen |= (uint8_t)(gV2Key[i] ^ 0xFFu);
+
+	gV2Provisioned = (seen != 0) &&
+	                 (gV2SenderId != 0xFFFFFFFFu) && (gV2SenderId != 0u) &&
+	                 (gV2CounterLimit != 0xFFFFFFFFu);
+
+	if (!gV2Provisioned) {
+		// Never leave a half-loaded key in RAM to be used by accident.
+		memset(gV2Key, 0, sizeof(gV2Key));
+		gV2SenderId = 0;
+	}
+}
+
+// Hand out the next transmit counter, reserving a block in EEPROM when the
+// current one runs out. Returns false when the radio must NOT transmit:
+// unprovisioned, or the counter space is exhausted.
+static bool MSG_V2ReserveCounter(void)
+{
+	uint8_t identity[8];
+
+	if (!gV2Provisioned)
+		return false;
+
+	if (gV2Counter >= gV2CounterLimit) {
+		// the protocol spec section 4, hard rule: the counter must never go
+		// backwards, and it must never wrap. Once the space is gone the radio
+		// stops transmitting rather than reusing a nonce - reuse under ChaCha20
+		// leaks the XOR of two plaintexts and destroys the Poly1305 key.
+		if (gV2CounterLimit > (0xFFFFFFFFu - V2_COUNTER_BLOCK))
+			return false;
+
+		gV2CounterLimit += V2_COUNTER_BLOCK;
+		MSG_PutLE32(&identity[0], gV2SenderId);
+		MSG_PutLE32(&identity[4], gV2CounterLimit);
+		EEPROM_WriteBuffer(V2_EEPROM_IDENTITY_ADDR, identity, true);
+	}
+
+	return true;
+}
+
 // Was moveUP(): three unrolled strcpy's that copied the entire log on every
 // message. At 16 entries that would have been 15 strcpy's and several hundred
 // bytes of flash for nothing. A head index does the same job in O(1).
@@ -209,6 +318,29 @@ void MSG_SendPacket() {
 
 	if ( msgStatus != READY ) return;
 
+	const bool isAck = (txType == V2_TYPE_ENC_ACK);
+
+	// An ACK's payload is the (sender_id, counter) it acknowledges and may
+	// legitimately start with a zero byte, so only a real message is required
+	// to be non-empty.
+	if ( !isAck && txPayload[0] == 0 ) {
+		AUDIO_PlayBeep(BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL);
+		return;
+	}
+
+	// v2 has no unauthenticated fallback, by design. Without a provisioned key,
+	// sender_id and counter there is nothing safe to transmit, so we refuse and
+	// beep rather than emitting something forgeable (the protocol spec 3, 4).
+	//
+	// Reserving here, before the VFO check, can burn a counter block if the TX
+	// is then refused. That is deliberate: counters only have to be UNIQUE, and
+	// simple, obviously-monotonic reservation is worth more than saving an
+	// EEPROM write that happens once per 64 messages.
+	if ( !MSG_V2ReserveCounter() ) {
+		AUDIO_PlayBeep(BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL);
+		return;
+	}
+
 	RADIO_PrepareTX();
 
 	if(RADIO_GetVfoState() != VFO_STATE_NORMAL){
@@ -216,49 +348,40 @@ void MSG_SendPacket() {
 		return;
 	} 
 
-	// BOUNDS: payload[] is PAYLOAD_LENGTH bytes filled from the FSK FIFO with no
-	// guaranteed NUL. strlen() here would read past it into nonce[] and beyond the
-	// union. The test is only "is it non-empty", which is exactly payload[0] != 0.
-	if ( dataPacket.data.payload[0] != 0 ) {
-
+	{
 		msgStatus = SENDING;
 
 		RADIO_SetVfoState(VFO_STATE_NORMAL);
 		BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
 		BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, true);
 
-		// display sent message (before encryption)
-		if (dataPacket.data.header != ACK_PACKET) {
+		// display sent message (the staged plaintext, before it is encrypted
+		// into the frame)
+		if (!isAck) {
 			MSG_LogPush();
 			// Remember WHICH entry this is so the ACK marker lands on the right
 			// line even if a message arrives between sending and the ACK.
 			msgPendingAckIdx = msgLogHead;
 			// BOUNDS: sprintf() is unbounded on BOTH read and write. The entry is
-			// PAYLOAD_LENGTH+2 bytes and payload[] has no guaranteed NUL. Bound both.
-			snprintf(rxMessage[msgLogHead], PAYLOAD_LENGTH + 2, "> %.*s", (int)PAYLOAD_LENGTH, dataPacket.data.payload);
+			// PAYLOAD_LENGTH+2 bytes and txPayload[] has no guaranteed NUL. Bound both.
+			snprintf(rxMessage[msgLogHead], PAYLOAD_LENGTH + 2, "> %.*s", (int)PAYLOAD_LENGTH, (const char *)txPayload);
 			memset(lastcMessage, 0, sizeof(lastcMessage));
-			memcpy(lastcMessage, dataPacket.data.payload, PAYLOAD_LENGTH);
+			memcpy(lastcMessage, txPayload, PAYLOAD_LENGTH);
 			cIndex = 0;
 			prevKey = 0;
 			prevLetter = 0;
 			memset(cMessage, 0, sizeof(cMessage));
 		}
 
-		#ifdef ENABLE_ENCRYPTION
-			if(dataPacket.data.header == ENCRYPTED_MESSAGE_PACKET){
+		// Build the authenticated frame. Every frame is encrypted and MACed -
+		// v2 has no plaintext mode to fall back to, and the header is the AAD so
+		// type, sender_id and counter are authenticated along with the payload.
+		V2_Encode(gMsgFrame, gV2Key, txType, gV2SenderId, gV2Counter, txPayload, V2_PAYLOAD_LEN);
+		gV2Counter++;
 
-				CRYPTO_Random(dataPacket.data.nonce, NONCE_LENGTH);
-
-				CRYPTO_Crypt(
-					dataPacket.data.payload,
-					PAYLOAD_LENGTH,
-					dataPacket.data.payload,
-					&dataPacket.data.nonce,
-					gEncryptionKey,
-					256
-				);
-			}
-		#endif
+		// The staged plaintext has served its purpose. Do not leave a copy of it
+		// sitting in RAM for a capture to find (the security design).
+		memset(txPayload, 0, sizeof(txPayload));
 
 		BK4819_DisableDTMF();
 
@@ -288,9 +411,6 @@ void MSG_SendPacket() {
 		MSG_ClearPacketBuffer();
 
 		msgStatus = READY;
-
-	} else {
-		AUDIO_PlayBeep(BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL);
 	}
 }
 
@@ -328,10 +448,10 @@ void MSG_StorePacket(const uint16_t interrupt_bits) {
 		const uint16_t count = BK4819_ReadRegister(BK4819_REG_5E) & (7u << 0);  // almost full threshold
 		for (uint16_t i = 0; i < count; i++) {
 			const uint16_t word = BK4819_ReadRegister(BK4819_REG_5F);
-			if (gFSKWriteIndex < sizeof(dataPacket.serializedArray))
-				dataPacket.serializedArray[gFSKWriteIndex++] = (word >> 0) & 0xff;
-			if (gFSKWriteIndex < sizeof(dataPacket.serializedArray))
-				dataPacket.serializedArray[gFSKWriteIndex++] = (word >> 8) & 0xff;
+			if (gFSKWriteIndex < sizeof(gMsgFrame))
+				gMsgFrame[gFSKWriteIndex++] = (word >> 0) & 0xff;
+			if (gFSKWriteIndex < sizeof(gMsgFrame))
+				gMsgFrame[gFSKWriteIndex++] = (word >> 8) & 0xff;
 		}
 
 		SYSTEM_DelayMs(10);
@@ -345,7 +465,10 @@ void MSG_StorePacket(const uint16_t interrupt_bits) {
 		BK4819_FskEnableRx();
 		msgStatus = READY;
 
-		if (gFSKWriteIndex > 2) {
+		// v2 frames are a fixed 56 bytes. A short frame cannot be authenticated,
+		// so it is not worth parsing - v1 handed anything over 2 bytes to the
+		// display path.
+		if (gFSKWriteIndex >= V2_FRAME_LEN) {
 			MSG_HandleReceive();
 		}
 		gFSKWriteIndex = 0;
@@ -358,6 +481,14 @@ void MSG_Init() {
 	memset(rxMessage, 0, sizeof(rxMessage));
 	memset(cMessage, 0, sizeof(cMessage));
 	memset(lastcMessage, 0, sizeof(lastcMessage));
+	// v2 added two more places plaintext lives: the staged transmit payload and
+	// the buffer a verified frame decodes into. Both must be wiped here, or the
+	// panic wipe leaves the last message sent and the last message received
+	// sitting in RAM.
+	memset(txPayload, 0, sizeof(txPayload));
+	memset(&rxDecoded, 0, sizeof(rxDecoded));
+	memset(gMsgFrame, 0, sizeof(gMsgFrame));
+	txType = V2_TYPE_ENC_MSG;
 	msgLogHead       = 0;
 	msgLogCount      = 0;
 	msgLogScroll     = 0;
@@ -370,93 +501,98 @@ void MSG_Init() {
 	prevKey = 0;
     prevLetter = 0;
 	cIndex = 0;
-	#ifdef ENABLE_ENCRYPTION
-		gRecalculateEncKey = true;
-	#endif
+	// NOTE: this does NOT wipe K_master. The key lives in EEPROM 0x1D00 and
+	// survives, so a captured radio still yields every message ever recorded off
+	// the air. That is a deliberate open question, not an oversight - see
+	// decision #10.
 }
 
-void MSG_SendAck() {
-	// in the future we might reply with received payload and then the sending radio
-	// could compare it and determine if the messegage was read correctly (kamilsss655)
+void MSG_SendAck(uint32_t ackSenderId, uint32_t ackCounter) {
+	// An authenticated ACK. Its payload names the exact (sender_id, counter)
+	// being acknowledged and is covered by the MAC, so a stale or replayed ACK
+	// can no longer be taken as confirmation of a different transaction - the
+	// v1 failure the crypto review flagged (the crypto review).
+	//
+	// The ACK gets its own counter and its own type, so its nonce can never
+	// collide with the message it acknowledges.
+	//
+	// Matching the ACK to the pending message, and suppressing duplicates, is
+	// step 5 of the build order. This commit makes the ACK unforgeable; it does
+	// not yet make it selective.
 	MSG_ClearPacketBuffer();
-	dataPacket.data.header = ACK_PACKET;
-	// sending only empty header seems to not work, so set few bytes of payload to increase reliability (kamilsss655)
-	memset(dataPacket.data.payload, 255, 5);
+	memset(txPayload, 0, sizeof(txPayload));
+	MSG_PutLE32(&txPayload[0], ackSenderId);
+	MSG_PutLE32(&txPayload[4], ackCounter);
+	txType = V2_TYPE_ENC_ACK;
 	MSG_SendPacket();
 }
 
 void MSG_HandleReceive(){
-	if (dataPacket.data.header == ACK_PACKET) {
+
+	// THE AUTHENTICATION GATE. Nothing from the air reaches the log, the
+	// display, or the UART until the Poly1305 tag verifies over the header and
+	// the ciphertext together.
+	//
+	// v1 had no gate at all: it decrypted whatever arrived and printed the
+	// result, so a forged frame was indistinguishable from a real one and a
+	// wrong key produced garbage on screen with no indication anything was
+	// wrong. A frame that fails here is forged, corrupted, or from a radio
+	// holding a different key - in every case there is nothing useful to show,
+	// so it is counted and dropped silently rather than displayed as an error.
+	// Displaying it would hand an attacker a free way to write to our screen.
+	if ( !gV2Provisioned || !V2_Decode(&rxDecoded, gV2Key, gMsgFrame) ) {
+		gErrorsDuringMSG++;
+		return;
+	}
+
+	if (rxDecoded.type == V2_TYPE_ACK || rxDecoded.type == V2_TYPE_ENC_ACK) {
 	#ifdef ENABLE_MESSENGER_DELIVERY_NOTIFICATION
 		#ifdef ENABLE_MESSENGER_UART
 			UART_printf("SVC<RCPT\r\n");
 		#endif
 		// Feature #2 bug fix: this was rxMessage[3][0] - "the last line". Only
-		// correct if nothing arrived between sending and the ACK. If a message
-		// DID arrive, moveUP() shifted the array and the '+' landed on the wrong
-		// message, silently reporting a different one as delivered.
+		// correct if nothing arrived between sending and the ACK.
+		//
+		// The ACK now carries the (sender_id, counter) it acknowledges, in
+		// rxDecoded.payload[0..7], and it is authenticated. Step 5 will match
+		// that against the pending message instead of trusting arrival order.
 		rxMessage[msgPendingAckIdx][0] = '+';
 		gUpdateStatus = true;
 		gUpdateDisplay = true;
 	#endif
-	} else {
-		MSG_LogPush();
-		if (dataPacket.data.header >= INVALID_PACKET) {
-			snprintf(rxMessage[msgLogHead], PAYLOAD_LENGTH + 2, "ERROR: INVALID PACKET.");
-		}
-		else
-		{
-			#ifdef ENABLE_ENCRYPTION
-				if(dataPacket.data.header == ENCRYPTED_MESSAGE_PACKET)
-				{
-					CRYPTO_Crypt(dataPacket.data.payload,
-						PAYLOAD_LENGTH,
-						dataPacket.data.payload,
-						&dataPacket.data.nonce,
-						gEncryptionKey,
-						256);
-				}
-				// BOUNDS: the WRITE was already bounded, but the %s conversion still
-				// traverses the source to compute its return value, and payload[] comes
-				// straight off the wire with no guaranteed NUL. A precision bounds the
-				// READ too (external/printf/printf.c:798, _strnlen_s(p, precision)).
-				// THIS IS THE LIVE WIRE-DATA PATH IN OUR BUILD.
-				snprintf(rxMessage[msgLogHead], PAYLOAD_LENGTH + 2, "< %.*s", (int)PAYLOAD_LENGTH, dataPacket.data.payload);
-			#else
-				// BOUNDS: the WRITE was already bounded, but the %s conversion still
-				// traverses the source to compute its return value, and payload[] comes
-				// straight off the wire with no guaranteed NUL. A precision bounds the
-				// READ too (external/printf/printf.c:798, _strnlen_s(p, precision)).
-				// (This #else branch is the ENABLE_ENCRYPTION=0 build, not ours.)
-				snprintf(rxMessage[msgLogHead], PAYLOAD_LENGTH + 2, "< %.*s", (int)PAYLOAD_LENGTH, dataPacket.data.payload);
-			#endif
-			#ifdef ENABLE_MESSENGER_UART
-				UART_printf("SMS<%.*s\r\n", (int)PAYLOAD_LENGTH, dataPacket.data.payload);
-			#endif
-		}
-
-		if ( gScreenToDisplay != DISPLAY_MSG ) {
-			hasNewMessage = 1;
-			gUpdateStatus = true;
-			gUpdateDisplay = true;
-	#ifdef ENABLE_MESSENGER_NOTIFICATION
-			gPlayMSGRing = true;
-	#endif
-		}
-		else {
-			gUpdateDisplay = true;
-		}
+		return;
 	}
 
-	// Transmit a message to the sender that we have received the message
-	if (dataPacket.data.header == MESSAGE_PACKET ||
-		dataPacket.data.header == ENCRYPTED_MESSAGE_PACKET)
+	MSG_LogPush();
+	// BOUNDS: the payload is 30 bytes off the wire with no guaranteed NUL, so
+	// the %s conversion is bounded on the READ as well as the write
+	// (external/printf/printf.c:798, _strnlen_s(p, precision)).
+	snprintf(rxMessage[msgLogHead], PAYLOAD_LENGTH + 2, "< %.*s", (int)PAYLOAD_LENGTH, (const char *)rxDecoded.payload);
+	#ifdef ENABLE_MESSENGER_UART
+		UART_printf("SMS<%.*s\r\n", (int)PAYLOAD_LENGTH, (const char *)rxDecoded.payload);
+	#endif
+
+	if ( gScreenToDisplay != DISPLAY_MSG ) {
+		hasNewMessage = 1;
+		gUpdateStatus = true;
+		gUpdateDisplay = true;
+	#ifdef ENABLE_MESSENGER_NOTIFICATION
+		gPlayMSGRing = true;
+	#endif
+	}
+	else {
+		gUpdateDisplay = true;
+	}
+
+	// Acknowledge the message we just authenticated. Naming its sender and
+	// counter is what lets the far end tell this ACK from any other.
+	if(gEeprom.MESSENGER_CONFIG.data.ack)
 	{
+		const uint32_t ackSenderId = rxDecoded.sender_id;
+		const uint32_t ackCounter  = rxDecoded.counter;
 		// wait so the correspondent radio can properly receive it
 		SYSTEM_DelayMs(700);
-
-		if(gEeprom.MESSENGER_CONFIG.data.ack)
-			MSG_SendAck();
+		MSG_SendAck(ackSenderId, ackCounter);
 	}
 }
 
@@ -604,24 +740,17 @@ void  MSG_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld) {
 
 void MSG_ClearPacketBuffer()
 {
-	memset(dataPacket.serializedArray, 0, sizeof(dataPacket.serializedArray));
+	memset(gMsgFrame, 0, sizeof(gMsgFrame));
 }
 
 void MSG_Send(const char *cMessage){
 	MSG_ClearPacketBuffer();
-	#ifdef ENABLE_ENCRYPTION
-		if(gEeprom.MESSENGER_CONFIG.data.encrypt)
-		{
-			dataPacket.data.header=ENCRYPTED_MESSAGE_PACKET;
-		}
-		else
-		{
-			dataPacket.data.header=MESSAGE_PACKET;
-		}
-	#else
-		dataPacket.data.header=MESSAGE_PACKET;
-	#endif
-	memcpy(dataPacket.data.payload, cMessage, sizeof(dataPacket.data.payload));
+	memset(txPayload, 0, sizeof(txPayload));
+	memcpy(txPayload, cMessage, V2_PAYLOAD_LEN);
+	// v2 always encrypts and always authenticates. There is no unprotected mode
+	// to select, so the old MESSENGER_CONFIG.encrypt branch is gone - a setting
+	// that could turn authentication off would defeat the point of v2.
+	txType = V2_TYPE_ENC_MSG;
 	MSG_SendPacket();
 }
 
@@ -766,19 +895,48 @@ void MSG_ConfigureFSK(bool rx)
 		break;
 	}
 
+	// v2 uses a DIFFERENT 4-byte sync word from v1's 30 72 57 6C.
+	//
+	// This is the version boundary, and it costs zero payload bytes: a v1 radio
+	// never raises an interrupt for a v2 frame and vice versa, so the two
+	// protocols are invisible to each other at the hardware layer. No version
+	// confusion to handle, no downgrade path, no v1 garbage reaching a parser
+	// that now has a MAC to check (the protocol spec section 6). The `ver`
+	// byte inside the frame is kept for evolution WITHIN v2.
+	//
+	// 4B 35 9C 2E - 16 of 32 bits set, no run longer than three, chosen so the
+	// correlator has an easy time of it.
+
 	// REG_5A .. bytes 0 & 1 sync pattern
 	//
 	// <15:8> sync byte 0
 	// < 7:0> sync byte 1
-	BK4819_WriteRegister(BK4819_REG_5A, 0x3072);
+	BK4819_WriteRegister(BK4819_REG_5A, 0x4B35);
 
 	// REG_5B .. bytes 2 & 3 sync pattern
 	//
 	// <15:8> sync byte 2
 	// < 7:0> sync byte 3
-	BK4819_WriteRegister(BK4819_REG_5B, 0x576C);
+	BK4819_WriteRegister(BK4819_REG_5B, 0x9C2E);
 
-	// disable CRC
+	// CRC LEFT DISABLED - deliberately, against the protocol spec section 6.
+	//
+	// The spec proposed 0x5625 -> 0x5665 (bit 6), copying AirCopy, as "free
+	// rejection of corrupted frames before they reach the MAC check". It is
+	// free only if the hardware CRC is transparent to the declared frame
+	// length, and the source does not settle that: AirCopy declares 72 bytes
+	// (REG_5D = 0x4700) for a 72-byte buffer whose CRC16 it computes ITSELF in
+	// software (app/aircopy.c:51, :90), yet it also reads a hardware CRC status
+	// bit (app/aircopy.c:80-82). Either the hardware appends and strips two
+	// bytes around the declared length, or it does not - and which one is true
+	// decides whether a 56-byte v2 frame still arrives as 56 bytes.
+	//
+	// Getting that wrong breaks FSK receive outright, and it cannot be told
+	// apart from any other RX failure without a second radio. The Poly1305 tag
+	// already rejects every corrupted frame with certainty, so the CRC buys
+	// only earliness. Not worth an untestable risk to the one thing v2 exists
+	// to make work. Flip this to 0x5665 as a one-line bench experiment once
+	// radio #2 arrives.
 	BK4819_WriteRegister(BK4819_REG_5C, 0x5625);
 
 	// set the almost full threshold
@@ -787,13 +945,12 @@ void MSG_ConfigureFSK(bool rx)
 
 	// packet size .. sync + packet - size of a single packet
 
-	uint16_t size = sizeof(dataPacket.serializedArray);
+	uint16_t size = sizeof(gMsgFrame);
 	// size -= (fsk_reg59 & (1u << 3)) ? 4 : 2;
 	if(rx)
 		size = (((size + 1) / 2) * 2) + 2;             // round up to even, else FSK RX doesn't work
 
 	BK4819_WriteRegister(BK4819_REG_5D, (size << 8));
-	// BK4819_WriteRegister(BK4819_REG_5D, ((sizeof(dataPacket.serializedArray)) << 8));
 
 	// clear FIFO's
 	BK4819_FskClearFifo();

@@ -26,10 +26,10 @@
 #include <stdint.h>
 #include <string.h>
 #include "driver/keyboard.h"
+#include "helper/v2frame.h"
 
 enum {
-	NONCE_LENGTH = 13,
-	PAYLOAD_LENGTH = 30
+	PAYLOAD_LENGTH = V2_PAYLOAD_LEN
 };
 
 typedef enum KeyboardType {
@@ -72,12 +72,11 @@ typedef enum MsgStatus {
     RECEIVING,
 } MsgStatus;
 
-typedef enum PacketType {
-    MESSAGE_PACKET = 100u,
-    ENCRYPTED_MESSAGE_PACKET,
-    ACK_PACKET,
-    INVALID_PACKET
-} PacketType;
+// Protocol v2 replaces the v1 PacketType enum (100..103, carried in a plaintext
+// header byte with nothing authenticating it) with the authenticated `type`
+// field of the v2 frame - V2_TYPE_* in helper/v2frame.h. The type is covered by
+// the MAC, so it can no longer be edited in flight to turn a message into an
+// ACK or vice versa.
 
 // Modem Modulation                             // 2024 kamilsss655
 typedef enum ModemModulation {
@@ -86,18 +85,27 @@ typedef enum ModemModulation {
   MOD_AFSK_1200  // for good conditions
 } ModemModulation;
 
-// Data Packet definition                            // 2024 kamilsss655
-union DataPacket
-{
-  struct{
-    uint8_t header;
-    uint8_t payload[PAYLOAD_LENGTH];
-    unsigned char nonce[NONCE_LENGTH];
-    // uint8_t signature[SIGNATURE_LENGTH];
-  } data;
-  // header + payload + nonce = must be an even number
-  uint8_t serializedArray[1+PAYLOAD_LENGTH+NONCE_LENGTH];
-};
+// The v2 wire buffer. 56 bytes, even, so the FSK FIFO's 16-bit writes land
+// exactly. Layout and codec live in helper/v2frame.h - deliberately NOT here,
+// because that file has to compile on the host for the vector test.
+//
+// v1 transmitted its 13-byte nonce; v2 does not. The receiver reconstructs the
+// nonce from sender_id and counter, which are already in the header. That is
+// where the 4 bytes for the 16-byte Poly1305 tag came from.
+extern uint8_t gMsgFrame[V2_FRAME_LEN];
+
+// v2 identity, loaded from EEPROM 0x1D00 at boot (the protocol spec section 3).
+// Provisioned over UART from the host, where real entropy exists - there is no
+// key derivation and nothing is generated on the radio.
+#define V2_EEPROM_KEY_ADDR       0x1D00u   // 32 bytes
+#define V2_EEPROM_IDENTITY_ADDR  0x1D20u   // sender_id(4) + counter(4), one 8-byte page
+#define V2_COUNTER_BLOCK         64u       // counters reserved per EEPROM write
+
+extern uint8_t  gV2Key[V2_KEY_LEN];
+extern uint32_t gV2SenderId;
+extern bool     gV2Provisioned;
+
+void MSG_V2LoadIdentity(void);
 
 // MessengerConfig                            // 2024 kamilsss655
 typedef union {
@@ -120,7 +128,7 @@ void MSG_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
 void MSG_SendPacket();
 void MSG_FSKSendData();
 void MSG_ClearPacketBuffer();
-void MSG_SendAck();
+void MSG_SendAck(uint32_t ackSenderId, uint32_t ackCounter);
 void MSG_HandleReceive();
 void MSG_Send(const char *cMessage);
 void MSG_ConfigureFSK(bool rx);

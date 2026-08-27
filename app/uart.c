@@ -43,8 +43,12 @@
 	#include "sram-overlay.h"
 #endif
 #include "version.h"
-#if defined(ENABLE_MESSENGER) && defined(ENABLE_MESSENGER_UART)
+#ifdef ENABLE_MESSENGER
+	// Needed unconditionally now, not just for the SMS: verb: CMD_051D has to
+	// recognise a write to the v2 identity range at 0x1D00.
 	#include "app/messenger.h"
+#endif
+#if defined(ENABLE_MESSENGER) && defined(ENABLE_MESSENGER_UART)
 	#include "external/printf/printf.h"
 #endif
 
@@ -308,6 +312,16 @@ static void CMD_051D(const uint8_t *pBuffer)
 			if (Offset >= 0x0F30 && Offset < 0x0F40)
 				if (!gIsLocked)
 					bReloadEeprom = true;
+
+			#ifdef ENABLE_MESSENGER
+				// Protocol v2 identity at 0x1D00..0x1D27: K_master, sender_id,
+				// counter. Reloading here is what lets tools/k5_provision.py
+				// key a radio and have it take effect immediately, instead of
+				// leaving the old key live in RAM until the next power cycle.
+				if (Offset >= V2_EEPROM_KEY_ADDR &&
+				    Offset < (V2_EEPROM_IDENTITY_ADDR + 8u))
+					bReloadEeprom = true;
+			#endif
 
 			if ((Offset < 0x0E98 || Offset >= 0x0EA0) || !bIsInLockScreen || pCmd->bAllowPassword)
 				EEPROM_WriteBuffer(Offset, &pCmd->Data[i * 8U], true);
