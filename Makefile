@@ -11,7 +11,7 @@ ENABLE_LTO                    := 1
 
 # ---- STOCK QUANSHENG FERATURES ----
 ENABLE_UART                   := 1
-ENABLE_AIRCOPY                := 1
+ENABLE_AIRCOPY                := 0
 ENABLE_FMRADIO                := 0
 ENABLE_NOAA                   := 0
 ENABLE_VOICE                  := 0
@@ -22,8 +22,8 @@ ENABLE_PWRON_PASSWORD         := 0
 ENABLE_DTMF_CALLING           := 0
 
 # ---- CUSTOM MODS ----
-ENABLE_BIG_FREQ                         := 1
-ENABLE_SMALL_BOLD                       := 1
+ENABLE_BIG_FREQ                         := 0
+ENABLE_SMALL_BOLD                       := 0
 ENABLE_KEEP_MEM_NAME                    := 1
 ENABLE_WIDE_RX                          := 1
 ENABLE_TX_WHEN_AM                       := 0
@@ -34,8 +34,8 @@ ENABLE_NO_CODE_SCAN_TIMEOUT             := 1
 ENABLE_SQUELCH_MORE_SENSITIVE           := 1
 ENABLE_FASTER_CHANNEL_SCAN              := 1
 ENABLE_RSSI_BAR                         := 1
-ENABLE_AUDIO_BAR                        := 1
-ENABLE_COPY_CHAN_TO_VFO                 := 1
+ENABLE_AUDIO_BAR                        := 0
+ENABLE_COPY_CHAN_TO_VFO                 := 0
 ENABLE_SPECTRUM                         := 1
 ENABLE_REDUCE_LOW_POWER                 := 1
 ENABLE_BYP_RAW_DEMODULATORS             := 0
