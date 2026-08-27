@@ -162,7 +162,7 @@ void SETTINGS_SaveSettings(void)
 	State[4] = gEeprom.SCAN_LIST_ENABLED[1];
 	State[5] = gEeprom.SCANLIST_PRIORITY_CH1[1];
 	State[6] = gEeprom.SCANLIST_PRIORITY_CH2[1];
-	State[7] = 0xFF;
+	State[7] = gEeprom.PRIORITY_INTERVAL;   // was hardcoded 0xFF; byte 7 is otherwise unused
 	EEPROM_WriteBuffer(0x0F18, State, true);
 
 	memset(State, 0xFF, sizeof(State));

@@ -695,6 +695,9 @@ void BOARD_EEPROM_Init(void)
 		gEeprom.SCANLIST_PRIORITY_CH1[i] =  Data[j + 1];
 		gEeprom.SCANLIST_PRIORITY_CH2[i] =  Data[j + 2];
 	}
+	// Byte 7 was written as 0xFF by every build before this one, so treat the
+	// erased value as 'unset' and fall back to the default rather than 255.
+	gEeprom.PRIORITY_INTERVAL = (Data[7] <= PRIORITY_INTERVAL_MAX) ? Data[7] : PRIORITY_INTERVAL_DEFAULT;
 
 	// 0F40..0F47
 	EEPROM_ReadBuffer(0x0F40, Data, 8);

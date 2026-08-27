@@ -141,6 +141,10 @@ enum CHANNEL_DisplayMode_t {
 };
 typedef enum CHANNEL_DisplayMode_t CHANNEL_DisplayMode_t;
 
+#define PRIORITY_INTERVAL_DEFAULT  4u
+#define PRIORITY_INTERVAL_MAX     16u
+#define PRIORITY_CHANNEL_NONE   0xFFu
+
 typedef struct {
 	uint8_t               ScreenChannel[2]; // current channels set in the radio (memory or frequency channels)
 	uint8_t               FreqChannel[2]; // last frequency channels used
@@ -185,6 +189,11 @@ typedef struct {
 	bool                  SCAN_LIST_ENABLED[2];
 	uint8_t               SCANLIST_PRIORITY_CH1[2];
 	uint8_t               SCANLIST_PRIORITY_CH2[2];
+	// Normal channels visited between priority checks. 0 = priority off.
+	// Stored in byte 7 of the 0x0F18 block, which the stock firmware writes
+	// as 0xFF and never reads back - so this costs no EEPROM layout change
+	// and cannot break CHIRP. 0xFF on read means 'unset' -> PRIORITY_INTERVAL_DEFAULT.
+	uint8_t               PRIORITY_INTERVAL;
 
 	uint8_t               field29_0x26;
 	uint8_t               field30_0x27;

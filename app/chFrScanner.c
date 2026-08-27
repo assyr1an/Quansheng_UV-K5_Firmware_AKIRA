@@ -14,21 +14,30 @@ uint32_t          gScanRangeStart;
 uint32_t          gScanRangeStop;
 #endif
 
-typedef enum {
-	SCAN_NEXT_CHAN_SCANLIST1 = 0,
-	SCAN_NEXT_CHAN_SCANLIST2,
-	SCAN_NEXT_CHAN_DUAL_WATCH,
-	SCAN_NEXT_CHAN_MR,
-	SCAN_NEXT_NUM
-} scan_next_chan_t;
-
-scan_next_chan_t	currentScanList;
+// Priority scanning state. The previous scan_next_chan_t rotation visited
+// PRI1, PRI2, normal, normal - so HALF of all scan time went to two channels,
+// and one of its four slots (SCAN_NEXT_CHAN_DUAL_WATCH) was entirely dead code.
+// Replaced with an interval counter: N normal channels, then one priority check.
+static uint8_t      priNormalCount;   // normal channels visited since the last check
+static uint8_t      priAlternate;     // alternates PRI1 / PRI2 between checks
 uint32_t            initialFrqOrChan;
 uint8_t           	initialCROSS_BAND_RX_TX;
 uint32_t            lastFoundFrqOrChan;
 
 static void NextFreqChannel(void);
 static void NextMemChannel(void);
+
+// Spec 5.7: an unset priority channel reads 0xFF from erased EEPROM, and
+// 255 >= 0 passes a bare signed test - the sentinel was only rejected further
+// down by RADIO_CheckValidChannel(). Correct behaviour, reached by accident.
+// Test it explicitly so both the "disabled" (-1) and "unset" (0xFF) cases are
+// rejected on purpose rather than by luck.
+static bool IsUsablePriorityChannel(const int ch)
+{
+	if (ch < 0 || ch > MR_CHANNEL_LAST)     // -1 = disabled, 0xFF = unset
+		return false;
+	return RADIO_CheckValidChannel((uint16_t)ch, false, 0);
+}
 
 void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_direction)
 {
@@ -41,7 +50,8 @@ void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_directi
 	RADIO_SelectVfos();
 
 	gNextMrChannel   = gRxVfo->CHANNEL_SAVE;
-	currentScanList = SCAN_NEXT_CHAN_SCANLIST1;
+	priNormalCount   = 0;
+	priAlternate     = 0;
 	gScanStateDir    = scan_direction;
 
 	if (IS_MR_CHANNEL(gNextMrChannel))
@@ -179,74 +189,50 @@ static void NextFreqChannel(void)
 
 static void NextMemChannel(void)
 {
-	static unsigned int prev_mr_chan = 0;
-	const bool          enabled      = (gEeprom.SCAN_LIST_DEFAULT < 2) ? gEeprom.SCAN_LIST_ENABLED[gEeprom.SCAN_LIST_DEFAULT] : true;
-	const int           chan1        = (gEeprom.SCAN_LIST_DEFAULT < 2) ? gEeprom.SCANLIST_PRIORITY_CH1[gEeprom.SCAN_LIST_DEFAULT] : -1;
-	const int           chan2        = (gEeprom.SCAN_LIST_DEFAULT < 2) ? gEeprom.SCANLIST_PRIORITY_CH2[gEeprom.SCAN_LIST_DEFAULT] : -1;
-	const unsigned int  prev_chan    = gNextMrChannel;
-	unsigned int        chan         = 0;
+	const bool         enabled   = (gEeprom.SCAN_LIST_DEFAULT < 2) ? gEeprom.SCAN_LIST_ENABLED[gEeprom.SCAN_LIST_DEFAULT] : true;
+	const int          chan1     = (gEeprom.SCAN_LIST_DEFAULT < 2) ? gEeprom.SCANLIST_PRIORITY_CH1[gEeprom.SCAN_LIST_DEFAULT] : -1;
+	const int          chan2     = (gEeprom.SCAN_LIST_DEFAULT < 2) ? gEeprom.SCANLIST_PRIORITY_CH2[gEeprom.SCAN_LIST_DEFAULT] : -1;
+	const unsigned int prev_chan = gNextMrChannel;
+	unsigned int       chan      = 0xFF;
 
-	if (enabled)
+	// Priority checking is off when the scan list is disabled, when
+	// SCAN_LIST_DEFAULT == 2 ("all channels", where chan1/chan2 are -1 by
+	// design), or when the user has set the interval to 0.
+	if (enabled && gEeprom.PRIORITY_INTERVAL > 0)
 	{
-		switch (currentScanList)
+		if (priNormalCount >= gEeprom.PRIORITY_INTERVAL)
 		{
-			case SCAN_NEXT_CHAN_SCANLIST1:
-				prev_mr_chan = gNextMrChannel;
-	
-				if (chan1 >= 0)
-				{
-					if (RADIO_CheckValidChannel(chan1, false, 0))
-					{
-						currentScanList = SCAN_NEXT_CHAN_SCANLIST1;
-						gNextMrChannel   = chan1;
-						break;
-					}
-				}
-				[[fallthrough]];
-			case SCAN_NEXT_CHAN_SCANLIST2:
-				if (chan2 >= 0)
-				{
-					if (RADIO_CheckValidChannel(chan2, false, 0))
-					{
-						currentScanList = SCAN_NEXT_CHAN_SCANLIST2;
-						gNextMrChannel   = chan2;
-						break;
-					}
-				}
-				[[fallthrough]];
-				
-			// this bit doesn't yet work if the other VFO is a frequency
-			case SCAN_NEXT_CHAN_DUAL_WATCH:
-				// dual watch is enabled - include the other VFO in the scan
-//				if (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF)
-//				{
-//					chan = (gEeprom.RX_VFO + 1) & 1u;
-//					chan = gEeprom.ScreenChannel[chan];
-//					if (IS_MR_CHANNEL(chan))
-//					{
-//						currentScanList = SCAN_NEXT_CHAN_DUAL_WATCH;
-//						gNextMrChannel   = chan;
-//						break;
-//					}
-//				}
+			// Alternate between the two priority channels so that having a
+			// second one does not halve the first one's revisit rate.
+			const int first  = priAlternate ? chan2 : chan1;
+			const int second = priAlternate ? chan1 : chan2;
 
-			default:
-			case SCAN_NEXT_CHAN_MR:
-				currentScanList = SCAN_NEXT_CHAN_MR;
-				gNextMrChannel   = prev_mr_chan;
-				chan             = 0xff;
-				break;
+			if (IsUsablePriorityChannel(first))
+				chan = (unsigned int)first;
+			else if (IsUsablePriorityChannel(second))
+				chan = (unsigned int)second;
+
+			if (chan != 0xFF)
+			{
+				priNormalCount = 0;
+				priAlternate  ^= 1;
+				gNextMrChannel = chan;
+			}
+		}
+		else
+		{
+			priNormalCount++;
 		}
 	}
 
-	if (!enabled || chan == 0xff)
-	{
+	if (chan == 0xFF)
+	{	// normal channel step
 		chan = RADIO_FindNextChannel(gNextMrChannel + gScanStateDir, gScanStateDir, (gEeprom.SCAN_LIST_DEFAULT < 2) ? true : false, gEeprom.SCAN_LIST_DEFAULT);
 		if (chan == 0xFF)
 		{	// no valid channel found
 			chan = MR_CHANNEL_FIRST;
 		}
-		
+
 		gNextMrChannel = chan;
 	}
 
@@ -266,8 +252,4 @@ static void NextMemChannel(void)
 #else
 	gScanPauseDelayIn_10ms = scan_pause_delay_in_3_10ms;
 #endif
-
-	if (enabled)
-		if (++currentScanList >= SCAN_NEXT_NUM)
-			currentScanList = SCAN_NEXT_CHAN_SCANLIST1;  // back round we go
 }
