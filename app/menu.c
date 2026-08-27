@@ -298,6 +298,18 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
 			*pMax = MR_CHANNEL_LAST;
 			break;
 
+		case MENU_PRI_CH1:
+		case MENU_PRI_CH2:
+			// one past the last channel is the OFF position
+			*pMin = 0;
+			*pMax = MR_CHANNEL_LAST + 1;
+			break;
+
+		case MENU_PRI_INT:
+			*pMin = 0;
+			*pMax = PRIORITY_INTERVAL_MAX;
+			break;
+
 		case MENU_SAVE:
 			*pMin = 0;
 			*pMax = ARRAY_SIZE(gSubMenu_SAVE) - 1;
@@ -676,6 +688,26 @@ void MENU_AcceptSetting(void)
 
 		case MENU_1_CALL:
 			gEeprom.CHAN_1_CALL = gSubMenuSelection;
+			break;
+
+		case MENU_PRI_CH1:
+		case MENU_PRI_CH2:
+		{	// per scan list; SCAN_LIST_DEFAULT == 2 is rejected by
+			// UI_MENU_IsAllowedToEdit(), so the index is always 0 or 1 here.
+			const uint8_t v = (gSubMenuSelection > MR_CHANNEL_LAST)
+			                ? PRIORITY_CHANNEL_NONE : (uint8_t)gSubMenuSelection;
+			if (gEeprom.SCAN_LIST_DEFAULT < 2)
+			{
+				if (UI_MENU_GetCurrentMenuId() == MENU_PRI_CH1)
+					gEeprom.SCANLIST_PRIORITY_CH1[gEeprom.SCAN_LIST_DEFAULT] = v;
+				else
+					gEeprom.SCANLIST_PRIORITY_CH2[gEeprom.SCAN_LIST_DEFAULT] = v;
+			}
+			break;
+		}
+
+		case MENU_PRI_INT:
+			gEeprom.PRIORITY_INTERVAL = gSubMenuSelection;
 			break;
 
 		#ifdef ENABLE_ALARM
@@ -1075,6 +1107,22 @@ void MENU_ShowCurrentSetting(void)
 
 		case MENU_1_CALL:
 			gSubMenuSelection = gEeprom.CHAN_1_CALL;
+			break;
+
+		case MENU_PRI_CH1:
+		case MENU_PRI_CH2:
+		{
+			const uint8_t idx = (gEeprom.SCAN_LIST_DEFAULT < 2) ? gEeprom.SCAN_LIST_DEFAULT : 0;
+			const uint8_t v   = (UI_MENU_GetCurrentMenuId() == MENU_PRI_CH1)
+			                  ? gEeprom.SCANLIST_PRIORITY_CH1[idx]
+			                  : gEeprom.SCANLIST_PRIORITY_CH2[idx];
+			// 0xFF (erased / unset) shows as the OFF position
+			gSubMenuSelection = (v > MR_CHANNEL_LAST) ? (MR_CHANNEL_LAST + 1) : v;
+			break;
+		}
+
+		case MENU_PRI_INT:
+			gSubMenuSelection = gEeprom.PRIORITY_INTERVAL;
 			break;
 
 		#ifdef ENABLE_ALARM
@@ -1790,6 +1838,34 @@ static void MENU_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
 
 	switch (UI_MENU_GetCurrentMenuId())
 	{
+		case MENU_PRI_CH1:
+		case MENU_PRI_CH2:
+			// RADIO_FindNextChannel() never returns the OFF position
+			// (MR_CHANNEL_LAST + 1), so step onto and off it explicitly.
+			// OFF sits immediately "below" channel 0.
+			if (gSubMenuSelection > MR_CHANNEL_LAST)
+			{
+				if (Direction > 0)
+				{
+					gSubMenuSelection = MR_CHANNEL_FIRST;
+				}
+				else
+				{
+					const uint8_t last = RADIO_FindNextChannel(MR_CHANNEL_LAST, -1, false, 0);
+					gSubMenuSelection = (last != 0xFF) ? last : MR_CHANNEL_FIRST;
+				}
+				gRequestDisplayScreen = DISPLAY_MENU;
+				return;
+			}
+			if (Direction < 0 && gSubMenuSelection == MR_CHANNEL_FIRST)
+			{
+				gSubMenuSelection     = MR_CHANNEL_LAST + 1;
+				gRequestDisplayScreen = DISPLAY_MENU;
+				return;
+			}
+			bCheckScanList = false;
+			break;
+
 		case MENU_DEL_CH:
 		case MENU_1_CALL:
 		case MENU_MEM_NAME:

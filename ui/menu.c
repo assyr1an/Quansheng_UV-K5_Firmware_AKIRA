@@ -61,6 +61,9 @@ const t_menu_item MenuList[] =
 	{"Demodu", VOICE_ID_INVALID,                       MENU_AM            }, // was "AM"
 	{"RxAGC",  VOICE_ID_INVALID,                       MENU_RX_AGC        }, // RX Auto Gain Control
 	{"ScAdd1", VOICE_ID_INVALID,                       MENU_S_ADD1        },
+	{"PriCh1", VOICE_ID_INVALID,                       MENU_PRI_CH1       },
+	{"PriCh2", VOICE_ID_INVALID,                       MENU_PRI_CH2       },
+	{"PriInt", VOICE_ID_INVALID,                       MENU_PRI_INT       },
 	{"ScAdd2", VOICE_ID_INVALID,                       MENU_S_ADD2        },
 	{"ChSave", VOICE_ID_MEMORY_CHANNEL,                MENU_MEM_CH        }, // was "MEM-CH"
 	{"ChDele", VOICE_ID_DELETE_CHANNEL,                MENU_DEL_CH        }, // was "DEL-CH"
@@ -146,6 +149,9 @@ const t_menu_item MenuList[] =
 };
 
 const int CHANNEL_ONLY_SETTINGS[] = {
+	MENU_PRI_CH1,
+	MENU_PRI_CH2,
+	MENU_PRI_INT,
 	MENU_S_ADD1,
 	MENU_S_ADD2,
 	MENU_DEL_CH,
@@ -691,6 +697,48 @@ void UI_DisplayMenu(void)
 			case MENU_SCREN:
 				strcpy(String, gSubMenu_OFF_ON[gSubMenuSelection]);
 				break;
+			case MENU_PRI_INT:
+				// 0 disables priority checking entirely (app/chFrScanner.c)
+				if (gSubMenuSelection == 0)
+					strcpy(String, "OFF");
+				else
+					sprintf(String, "%u", gSubMenuSelection);
+				break;
+
+			case MENU_PRI_CH1:
+			case MENU_PRI_CH2:
+			{
+				// MR_CHANNEL_LAST + 1 is the OFF position - see MENU_AcceptSetting,
+				// which maps it to PRIORITY_CHANNEL_NONE (0xFF).
+				if (gSubMenuSelection > MR_CHANNEL_LAST)
+				{
+					strcpy(String, "OFF");
+					UI_PrintString(String, menu_item_x1, menu_item_x2, 0, 8);
+				}
+				else
+				{
+					UI_GenerateChannelStringEx(String, 1, gSubMenuSelection);
+					UI_PrintString(String, menu_item_x1, menu_item_x2, 0, 8);
+
+					SETTINGS_FetchChannelName(String, gSubMenuSelection);
+					if (String[0] == 0)
+						strcpy(String, "--");
+					UI_PrintString(String, menu_item_x1, menu_item_x2, 2, 8);
+
+					const uint32_t frequency = BOARD_fetchChannelFrequency(gSubMenuSelection);
+					sprintf(String, "%u.%05u", frequency / 100000, frequency % 100000);
+					UI_PrintString(String, menu_item_x1, menu_item_x2, 4, 8);
+				}
+
+				// The priority channels are PER SCAN LIST. Without this the user
+				// cannot tell which list they are editing (plan section 5.4b).
+				sprintf(String, "LIST %u", gEeprom.SCAN_LIST_DEFAULT + 1);
+				UI_PrintString(String, menu_item_x1, menu_item_x2, 6, 8);
+
+				already_printed = true;
+				break;
+			}
+
 			case MENU_MEM_CH:
 			case MENU_1_CALL:
 			case MENU_DEL_CH:
@@ -1047,6 +1095,14 @@ bool UI_MENU_IsAllowedToEdit(int menu_id)
 		IsValueInArray(menu_id, VFO_ONLY_SETTINGS, sizeof(VFO_ONLY_SETTINGS));
 
 	if (isChannelOnlySetting && !IS_MR_CHANNEL(gTxVfo->CHANNEL_SAVE))
+	{
+		return false;
+	}
+	// Priority channels are stored per scan list. With SCAN_LIST_DEFAULT == 2
+	// ("all channels") the scanner hardcodes chan1 = chan2 = -1, so priority is
+	// off by design and there is no live value to edit - say so rather than
+	// silently editing a dead one (plan section 5.4b).
+	else if ((menu_id == MENU_PRI_CH1 || menu_id == MENU_PRI_CH2) && gEeprom.SCAN_LIST_DEFAULT >= 2)
 	{
 		return false;
 	}
