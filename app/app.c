@@ -1306,6 +1306,13 @@ void APP_TimeSlice500ms(void)
 	#endif
 
 	#ifdef ENABLE_MESSENGER
+		// Feature #1. 500ms granularity suits a 4-second timeout exactly and
+		// costs no new timer. NOTE: APP_RunSpectrum() is a modal loop that
+		// never calls the timeslices, so a pending retry FREEZES while the
+		// spectrum screen is open - as does messenger RX, so there would be
+		// nothing to hear an ACK anyway (the codebase notes 13 #20).
+		MSG_RetryTick();
+
 		if (hasNewMessage > 0) {
 			if (hasNewMessage == 1) {
 				hasNewMessage = 2;

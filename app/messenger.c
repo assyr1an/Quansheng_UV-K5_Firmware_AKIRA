@@ -124,6 +124,24 @@ static uint8_t gV2SeenNext;   // round-robin slot to reuse once the table fills
 static uint32_t gPendingAckCounter;
 static bool     gAckPending;
 
+// Feature #1 - auto-retry.
+//
+// v2 retries by retransmitting the BYTE-IDENTICAL frame: same counter, same
+// nonce, same ciphertext, same tag. That is not an optimisation, it is the
+// only correct choice. Re-encrypting under a fresh counter would produce a
+// frame the far end reads as a NEW message and displays a second time, which
+// is exactly the duplicate the step-5 dedup exists to suppress. Keeping the
+// frame also means a retry consumes no counter and no nonce.
+//
+// 56 bytes of ciphertext, not plaintext - and stored rather than re-encoded
+// from lastcMessage on purpose. Re-encoding would make retry correctness
+// depend on lastcMessage still holding the right payload, a coupling a future
+// edit could break silently and invisibly.
+static uint8_t retryFrame[V2_FRAME_LEN];
+static uint8_t msgRetriesLeft;             // retransmissions still permitted; 0 = idle
+static uint8_t msgRetryCountdown_500ms;
+static bool    txIsRetry;                  // this send is a retransmission
+
 // What MSG_V2CheckReplay() decided about an authenticated frame.
 enum {
 	V2_RX_NEW = 0,        // never seen: accept, display, remember
@@ -399,18 +417,25 @@ void MSG_LogPush(void)
 	msgLogScroll = 0;
 }
 
-void MSG_SendPacket() {
+bool MSG_SendPacket() {
 
-	if ( msgStatus != READY ) return;
+	if ( msgStatus != READY ) return false;
 
-	const bool isAck = (txType == V2_TYPE_ENC_ACK);
+	// A retransmission is never an ACK - ACKs are not retried at all. Saying so
+	// here rather than relying on txType is not pedantry: an incoming message
+	// auto-ACKed between the original send and the retry leaves txType set to
+	// ENC_ACK, and every "is this an ACK" test below would then be answering
+	// about the wrong frame.
+	const bool isAck = !txIsRetry && (txType == V2_TYPE_ENC_ACK);
 
 	// An ACK's payload is the (sender_id, counter) it acknowledges and may
 	// legitimately start with a zero byte, so only a real message is required
 	// to be non-empty.
-	if ( !isAck && txPayload[0] == 0 ) {
+	// A retransmission has no payload to stage and no counter to reserve - the
+	// finished frame is already sitting in retryFrame.
+	if ( !txIsRetry && !isAck && txPayload[0] == 0 ) {
 		AUDIO_PlayBeep(BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL);
-		return;
+		return false;
 	}
 
 	// v2 has no unauthenticated fallback, by design. Without a provisioned key,
@@ -421,16 +446,18 @@ void MSG_SendPacket() {
 	// is then refused. That is deliberate: counters only have to be UNIQUE, and
 	// simple, obviously-monotonic reservation is worth more than saving an
 	// EEPROM write that happens once per 64 messages.
-	if ( !MSG_V2ReserveCounter() ) {
+	if ( !txIsRetry && !MSG_V2ReserveCounter() ) {
 		AUDIO_PlayBeep(BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL);
-		return;
+		return false;
 	}
 
 	RADIO_PrepareTX();
 
 	if(RADIO_GetVfoState() != VFO_STATE_NORMAL){
+		// Busy channel, low battery, or a serial session holding TX off. Nothing
+		// went out, so the caller must not count this as an attempt.
 		gRequestDisplayScreen = DISPLAY_MAIN;
-		return;
+		return false;
 	} 
 
 	{
@@ -441,8 +468,8 @@ void MSG_SendPacket() {
 		BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, true);
 
 		// display sent message (the staged plaintext, before it is encrypted
-		// into the frame)
-		if (!isAck) {
+		// into the frame). A retransmission has a log line already.
+		if (!isAck && !txIsRetry) {
 			MSG_LogPush();
 			// Remember WHICH entry this is so the ACK marker lands on the right
 			// line even if a message arrives between sending and the ACK.
@@ -463,11 +490,25 @@ void MSG_SendPacket() {
 			gAckPending        = true;
 		}
 
-		// Build the authenticated frame. Every frame is encrypted and MACed -
-		// v2 has no plaintext mode to fall back to, and the header is the AAD so
-		// type, sender_id and counter are authenticated along with the payload.
-		V2_Encode(gMsgFrame, gV2Key, txType, gV2SenderId, gV2Counter, txPayload, V2_PAYLOAD_LEN);
-		gV2Counter++;
+		if (txIsRetry) {
+			// Byte-identical retransmission. Nothing is re-encrypted, no counter
+			// is consumed, and the far end deduplicates it on the counter it
+			// already holds.
+			memcpy(gMsgFrame, retryFrame, sizeof(gMsgFrame));
+		} else {
+			// Build the authenticated frame. Every frame is encrypted and MACed -
+			// v2 has no plaintext mode to fall back to, and the header is the AAD
+			// so type, sender_id and counter are authenticated with the payload.
+			V2_Encode(gMsgFrame, gV2Key, txType, gV2SenderId, gV2Counter, txPayload, V2_PAYLOAD_LEN);
+			gV2Counter++;
+
+			// Keep a copy of real messages for retry. ACKs are never retried:
+			// two radios auto-retrying each other's acknowledgements is an
+			// infinite transmission loop, and it is the single most dangerous
+			// bug available in this feature.
+			if (!isAck)
+				memcpy(retryFrame, gMsgFrame, sizeof(retryFrame));
+		}
 
 		// The staged plaintext has served its purpose. Do not leave a copy of it
 		// sitting in RAM for a capture to find (the security design).
@@ -502,6 +543,8 @@ void MSG_SendPacket() {
 
 		msgStatus = READY;
 	}
+
+	return true;
 }
 
 uint8_t validate_char( uint8_t rchar ) {
@@ -586,6 +629,11 @@ void MSG_Init() {
 	gV2SeenNext        = 0;
 	gPendingAckCounter = 0;
 	gAckPending        = false;
+	// A pending retry would retransmit a message the operator just wiped.
+	memset(retryFrame, 0, sizeof(retryFrame));
+	msgRetriesLeft          = 0;
+	msgRetryCountdown_500ms = 0;
+	txIsRetry               = false;
 	msgLogHead       = 0;
 	msgLogCount      = 0;
 	msgLogScroll     = 0;
@@ -680,6 +728,7 @@ void MSG_HandleReceive(){
 			#endif
 			rxMessage[msgPendingAckIdx][0] = '+';
 			gAckPending    = false;
+			msgRetriesLeft = 0;    // delivered - stand down
 			gUpdateStatus  = true;
 			gUpdateDisplay = true;
 		}
@@ -883,7 +932,66 @@ void MSG_Send(const char *cMessage){
 	// to select, so the old MESSENGER_CONFIG.encrypt branch is gone - a setting
 	// that could turn authentication off would defeat the point of v2.
 	txType = V2_TYPE_ENC_MSG;
-	MSG_SendPacket();
+
+	// THE RE-ARM BUG, avoided structurally rather than with a flag. Arming
+	// inside MSG_SendPacket() would re-arm on every retransmission too, because
+	// a retry goes back through the same function - retries would never
+	// exhaust and a dead link would transmit forever, which is the exact
+	// failure the bound exists to prevent. MSG_Send() is the only entry point a
+	// human message takes, and MSG_RetryTick() deliberately does not use it.
+	if (MSG_SendPacket() && gEeprom.MESSENGER_CONFIG.data.retry) {
+		msgRetriesLeft          = MSG_MAX_TRANSMISSIONS - 1u;
+		msgRetryCountdown_500ms = MSG_RETRY_TIMEOUT_500MS;
+	} else {
+		msgRetriesLeft = 0;
+	}
+}
+
+// Drive the retry from a timeslice, never from inside MSG_SendPacket(): that
+// function blocks for up to ~1.3s with the CPU held, so nothing can be driven
+// from within it.
+//
+// No volatile, no guard, no race. MSG_StorePacket() looks interrupt-driven but
+// is not: CheckRadioInterrupts() is called only from APP_TimeSlice10ms(), the
+// same main-loop context as APP_TimeSlice500ms() and MSG_SendPacket(). The only
+// true ISR is SystickHandler(), which touches none of this (the codebase notes).
+void MSG_RetryTick(void)
+{
+	if (msgRetriesLeft == 0)
+		return;
+
+	if (msgRetryCountdown_500ms > 0 && --msgRetryCountdown_500ms > 0)
+		return;
+
+	// Never re-enter a send in progress: MSG_SendPacket() returns immediately
+	// when msgStatus != READY, which would burn a retry without transmitting.
+	if (msgStatus != READY) {
+		msgRetryCountdown_500ms = 2u;   // look again in a second
+		return;
+	}
+
+	txIsRetry = true;
+	const bool sent = MSG_SendPacket();
+	txIsRetry = false;
+
+	if (!sent) {
+		// Refused - busy channel, low battery, serial session. Nothing went on
+		// the air, so this does not count as an attempt.
+		msgRetryCountdown_500ms = 2u;
+		return;
+	}
+
+	if (--msgRetriesLeft > 0) {
+		msgRetryCountdown_500ms = MSG_RETRY_TIMEOUT_500MS;
+		return;
+	}
+
+	// Out of attempts. Say so: an unmarked line is indistinguishable from one
+	// still in flight, and under stress that ambiguity is worse than a failure.
+	rxMessage[msgPendingAckIdx][0] = '!';
+	gAckPending    = false;
+	gUpdateStatus  = true;
+	gUpdateDisplay = true;
 }
 
 void MSG_ConfigureFSK(bool rx)

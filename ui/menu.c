@@ -121,6 +121,7 @@ const t_menu_item MenuList[] =
 #ifdef ENABLE_MESSENGER
 	{"MsgRx",  VOICE_ID_INVALID,                       MENU_MSG_RX        }, // messenger rx
 	{"MsgAck", VOICE_ID_INVALID,                       MENU_MSG_ACK       }, // messenger respond ACK
+	{"MsgRty", VOICE_ID_INVALID,                       MENU_MSG_RETRY     }, // messenger auto-retry unacknowledged messages
 	{"MsgMod", VOICE_ID_INVALID,                       MENU_MSG_MODULATION}, // messenger modulation
 #endif
 	{"Sql",    VOICE_ID_SQUELCH,                       MENU_SQL           },
@@ -684,6 +685,7 @@ void UI_DisplayMenu(void)
 			#ifdef ENABLE_MESSENGER
 				case MENU_MSG_RX:
 				case MENU_MSG_ACK:
+				case MENU_MSG_RETRY:
 			#endif
 			case MENU_350TX:
 			case MENU_200TX:

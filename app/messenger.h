@@ -127,6 +127,23 @@ void MSG_V2WipeIdentity(void);
 // reach the table, so an attacker cannot churn it without the key.
 #define V2_DEDUP_SIZE  4u
 
+// Feature #1 - auto-retry. Timing measured from the source, not guessed:
+// MSG_SendPacket() blocks ~300ms typically and up to ~1.3s, and the far end
+// waits a further 700ms before answering so the sender can turn its radio
+// around. A round trip is therefore ~1.3-2.6s, so anything under 2s guarantees
+// duplicate transmissions on a HEALTHY link. 4 seconds it is.
+#define MSG_RETRY_TIMEOUT_500MS  8u   // 4 seconds
+// Named for what it actually is. The plan's "bound it at 3" was ambiguous
+// between 3 retries and 3 transmissions; this is the total that goes on the
+// air, so a failed message costs at most 3 frames of airtime.
+#define MSG_MAX_TRANSMISSIONS    3u
+
+// Returns true only if a frame actually reached the FIFO. False means nothing
+// was transmitted - not ready, nothing to send, unprovisioned, or the VFO
+// refused - and a retry must NOT be counted against the budget for those.
+bool MSG_SendPacket();
+void MSG_RetryTick(void);       // call once per 500ms timeslice
+
 // Counts down in APP_TimeSlice500ms(). Non-zero means the first press of a
 // WIPE+KEY gesture has landed and the second press - within the window - will
 // destroy the key. Zero means disarmed.
@@ -144,7 +161,12 @@ typedef union {
       // place rather than repacked: the byte lives at EEPROM 0x0EA3 and moving
       // the other fields would silently reinterpret every already-programmed
       // radio's settings.
-      unused3    :1,
+      retry      :1, // was `encrypt` (v1). Feature #1: auto-retry an unacknowledged
+                     // message. Bit position deliberately unchanged - the byte
+                     // lives at EEPROM 0x0EA3 and repacking would silently
+                     // reinterpret every already-programmed radio's settings.
+                     // Erased EEPROM reads 0xFF, so retry defaults ON, matching
+                     // `receive` and `ack`.
       unused     :1,
       modulation :2, // determines FSK modulation type
       unused2    :2;
@@ -156,7 +178,6 @@ void MSG_EnableRX(const bool enable);
 void MSG_StorePacket(const uint16_t interrupt_bits);
 void MSG_Init();
 void MSG_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
-void MSG_SendPacket();
 void MSG_FSKSendData();
 void MSG_ClearPacketBuffer();
 void MSG_SendAck(uint32_t ackSenderId, uint32_t ackCounter);
