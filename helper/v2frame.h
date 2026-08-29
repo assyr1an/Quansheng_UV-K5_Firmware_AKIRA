@@ -40,7 +40,14 @@ enum {
 	V2_FRAME_LEN    = V2_HEADER_LEN + V2_PAYLOAD_LEN + V2_TAG_LEN,  /* 56 */
 
 	V2_KEY_LEN      = 32,
-	V2_NONCE_LEN    = 12
+	V2_NONCE_LEN    = 12,
+
+	// Characters of the on-radio key fingerprint. 6 x 5 bits = 30 bits, so two
+	// different keys collide with probability ~2^-30. That is ample for "do our
+	// two radios hold the same key?", which is the only question it answers -
+	// and an attacker cannot choose keys here anyway, since both radios are
+	// provisioned from one host keyfile.
+	V2_FINGERPRINT_LEN = 6
 };
 
 /* Packet types. Values match the host reference exactly. */
@@ -79,5 +86,20 @@ void V2_Encode(uint8_t frame[V2_FRAME_LEN], const uint8_t key[V2_KEY_LEN],
  * corrupted, or wrong key, and the caller must not display any part of it. */
 bool V2_Decode(V2Message_t *out, const uint8_t key[V2_KEY_LEN],
                const uint8_t frame[V2_FRAME_LEN]);
+
+/* A short, human-comparable fingerprint of the master key, so two operators can
+ * confirm on-screen that their radios hold the same key with no laptop present.
+ * Writes V2_FINGERPRINT_LEN characters plus a NUL.
+ *
+ * It does NOT weaken the key: the output is ChaCha20 keystream at a fixed
+ * nonce, which is PRF output, and only 30 bits of it are published.
+ *
+ * The fingerprint nonce is domain-separated from every message nonce by
+ * construction. A message nonce is sender_id||counter||type||000 with type in
+ * 1..4, so byte 8 is never zero; the fingerprint nonce has byte 8 == 0. The two
+ * keystreams therefore never overlap, and no fingerprint can ever reveal a
+ * keystream byte used to encrypt a message. */
+void V2_Fingerprint(char out[V2_FINGERPRINT_LEN + 1],
+                    const uint8_t key[V2_KEY_LEN]);
 
 #endif

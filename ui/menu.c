@@ -36,6 +36,10 @@
 #include "settings.h"
 #include "ui/helper.h"
 #include "ui/inputbox.h"
+#ifdef ENABLE_MESSENGER
+	#include "app/messenger.h"
+	#include "helper/v2frame.h"
+#endif
 #include "ui/menu.h"
 #include "ui/ui.h"
 
@@ -122,6 +126,7 @@ const t_menu_item MenuList[] =
 	{"MsgRx",  VOICE_ID_INVALID,                       MENU_MSG_RX        }, // messenger rx
 	{"MsgAck", VOICE_ID_INVALID,                       MENU_MSG_ACK       }, // messenger respond ACK
 	{"MsgRty", VOICE_ID_INVALID,                       MENU_MSG_RETRY     }, // messenger auto-retry unacknowledged messages
+	{"KeyID",  VOICE_ID_INVALID,                       MENU_MSG_KEY_ID    }, // read-only fingerprint of the v2 master key
 	{"MsgMod", VOICE_ID_INVALID,                       MENU_MSG_MODULATION}, // messenger modulation
 #endif
 	{"Sql",    VOICE_ID_SQUELCH,                       MENU_SQL           },
@@ -695,6 +700,22 @@ void UI_DisplayMenu(void)
 			case MENU_SCREN:
 				strcpy(String, gSubMenu_OFF_ON[gSubMenuSelection]);
 				break;
+			#ifdef ENABLE_MESSENGER
+			case MENU_MSG_KEY_ID:
+				// Read-only. There is nothing to set, so no MENU_GetLimits or
+				// MENU_AcceptSetting entry exists - both default to doing
+				// nothing for an unknown id, which is exactly right here.
+				//
+				// This replaces what the deleted EncKey screen used to provide:
+				// a way for two operators to confirm on-screen that their
+				// radios hold the same key, with no laptop present. It shows a
+				// fingerprint of the key, never the key.
+				if (gV2Provisioned)
+					V2_Fingerprint(String, gV2Key);
+				else
+					strcpy(String, "NONE");
+				break;
+			#endif
 			case MENU_PRI_INT:
 				// 0 disables priority checking entirely (app/chFrScanner.c)
 				if (gSubMenuSelection == 0)

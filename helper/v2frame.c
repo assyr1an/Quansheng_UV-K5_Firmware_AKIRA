@@ -132,6 +132,32 @@ void V2_Encode(uint8_t frame[V2_FRAME_LEN], const uint8_t key[V2_KEY_LEN],
 	memset(nonce, 0, sizeof(nonce));
 }
 
+void V2_Fingerprint(char out[V2_FINGERPRINT_LEN + 1], const uint8_t key[V2_KEY_LEN])
+{
+	// Crockford base32: no I, L, O or U, so nothing is misread aloud or
+	// mistaken for a digit when two people compare six characters over a radio.
+	static const char alphabet[32] = {
+		'0','1','2','3','4','5','6','7','8','9',
+		'A','B','C','D','E','F','G','H','J','K',
+		'M','N','P','Q','R','S','T','V','W','X','Y','Z'
+	};
+	// Byte 8 is 0, which no message nonce can ever be - see v2frame.h.
+	static const uint8_t fp_nonce[V2_NONCE_LEN] = {
+		'K','E','Y','I','D', 0, 0, 0, 0, 0, 0, 0
+	};
+	uint8_t ks[V2_FINGERPRINT_LEN];
+	uint8_t i;
+
+	memset(ks, 0, sizeof(ks));
+	V2_ChaCha(key, 0, fp_nonce, ks, ks, sizeof(ks));
+
+	for (i = 0; i < V2_FINGERPRINT_LEN; i++)
+		out[i] = alphabet[ks[i] & 31u];
+	out[V2_FINGERPRINT_LEN] = 0;
+
+	memset(ks, 0, sizeof(ks));
+}
+
 bool V2_Decode(V2Message_t *out, const uint8_t key[V2_KEY_LEN],
                const uint8_t frame[V2_FRAME_LEN])
 {
