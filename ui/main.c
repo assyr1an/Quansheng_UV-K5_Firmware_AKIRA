@@ -271,7 +271,12 @@ void UI_DisplayMain(void)
 			// Second line reads off the actual state, so no extra flag is
 			// needed to tell "armed" from "done" - and an unprovisioned radio
 			// correctly says there was never a key to destroy.
-			UI_PrintString(gV2Provisioned ? "AGAIN=KEY" : "KEY GONE",
+			// Never claim the key is gone unless the EEPROM read-back proved it.
+			// An operator deciding whether the radio is safe to abandon has to
+			// be told the truth here, and the write path cannot report failure
+			// on its own (driver/eeprom.c returns void).
+			UI_PrintString(gV2WipeFailed  ? "KEY LEFT!" :
+			               gV2Provisioned ? "AGAIN=KEY" : "KEY GONE",
 			               0, LCD_WIDTH, 3, 8);
 			ST7565_BlitFullScreen();
 			return;

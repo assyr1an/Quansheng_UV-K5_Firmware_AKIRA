@@ -108,6 +108,9 @@ static uint32_t gV2Counter;
 static uint32_t gV2CounterLimit;
 
 uint8_t gPanicWipeArmed_500ms;
+// Set when MSG_V2WipeIdentity() could not prove the EEPROM was actually
+// cleared. The panic screen reports this instead of "KEY GONE".
+bool    gV2WipeFailed;
 
 // Replay window: the highest counter authenticated from each sender we have
 // heard. See messenger.h for why it is four entries and RAM-only.
@@ -341,6 +344,29 @@ static bool MSG_V2ReserveCounter(void)
 		MSG_PutLE32(&identity[0], gV2SenderId);
 		MSG_PutLE32(&identity[4], gV2CounterLimit);
 		EEPROM_WriteBuffer(V2_EEPROM_IDENTITY_ADDR, identity, true);
+
+		// VERIFY THE RESERVATION. EEPROM_WriteBuffer() is fire-and-forget: it
+		// returns void and discards I2C_WriteBuffer()'s return value
+		// (driver/eeprom.c), so a bus glitch or a brownout mid-burn leaves the
+		// cell holding its old value with nothing reported.
+		//
+		// That is the ONE silent path to nonce reuse in this design. We would
+		// hand out counters 65..128 from RAM while EEPROM still said 65, and
+		// the next boot would hand out 65..128 again - two messages under one
+		// key+nonce, which leaks their XOR and destroys the Poly1305 one-time
+		// key. Nothing on screen would look wrong.
+		//
+		// So: read it back, and if the reservation did not stick, stop
+		// transmitting entirely until the identity is reloaded from EEPROM
+		// (a power cycle, or any UART write to this range). Refusing to send is
+		// a loud, recoverable failure; reusing a nonce is a silent, permanent
+		// one.
+		uint8_t readback[8];
+		EEPROM_ReadBuffer(V2_EEPROM_IDENTITY_ADDR, readback, sizeof(readback));
+		if (memcmp(readback, identity, sizeof(identity)) != 0) {
+			gV2Provisioned = false;
+			return false;
+		}
 	}
 
 	return true;
@@ -364,6 +390,25 @@ void MSG_V2WipeIdentity(void)
 	for (i = 0; i < (V2_KEY_LEN / 8u); i++)
 		EEPROM_WriteBuffer(V2_EEPROM_KEY_ADDR + (i * 8u), blank, true);
 	EEPROM_WriteBuffer(V2_EEPROM_IDENTITY_ADDR, blank, true);
+
+	// VERIFY, for the same reason the counter reservation is verified: the
+	// write is fire-and-forget. A panic wipe that reports success while the key
+	// is still in EEPROM is worse than one that fails - it tells the operator
+	// the radio is safe to abandon when it is not.
+	gV2WipeFailed = false;
+	{
+		uint8_t readback[8];
+
+		for (i = 0; i < (V2_KEY_LEN / 8u); i++) {
+			EEPROM_ReadBuffer(V2_EEPROM_KEY_ADDR + (i * 8u), readback, sizeof(readback));
+			if (memcmp(readback, blank, sizeof(readback)) != 0)
+				gV2WipeFailed = true;
+		}
+
+		EEPROM_ReadBuffer(V2_EEPROM_IDENTITY_ADDR, readback, sizeof(readback));
+		if (memcmp(readback, blank, sizeof(readback)) != 0)
+			gV2WipeFailed = true;
+	}
 
 	memset(gV2Key, 0, sizeof(gV2Key));
 	gV2SenderId     = 0;
@@ -634,6 +679,10 @@ void MSG_Init() {
 	msgRetriesLeft          = 0;
 	msgRetryCountdown_500ms = 0;
 	txIsRetry               = false;
+	// Clear the stale wipe verdict. MSG_Init() runs on the FIRST press of a
+	// WIPE+KEY gesture, so without this a failure from some earlier wipe would
+	// display "KEY LEFT!" where the prompt should read "AGAIN=KEY".
+	gV2WipeFailed = false;
 	msgLogHead       = 0;
 	msgLogCount      = 0;
 	msgLogScroll     = 0;

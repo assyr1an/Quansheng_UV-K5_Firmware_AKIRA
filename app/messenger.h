@@ -148,6 +148,7 @@ void MSG_RetryTick(void);       // call once per 500ms timeslice
 // WIPE+KEY gesture has landed and the second press - within the window - will
 // destroy the key. Zero means disarmed.
 extern uint8_t gPanicWipeArmed_500ms;
+extern bool    gV2WipeFailed;
 #define PANIC_WIPE_CONFIRM_500MS  6u   // 3 seconds
 
 // MessengerConfig                            // 2024 kamilsss655
