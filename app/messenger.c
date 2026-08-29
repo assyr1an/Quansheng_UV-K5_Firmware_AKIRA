@@ -1004,6 +1004,11 @@ void MSG_Send(const char *cMessage){
 // is not: CheckRadioInterrupts() is called only from APP_TimeSlice10ms(), the
 // same main-loop context as APP_TimeSlice500ms() and MSG_SendPacket(). The only
 // true ISR is SystickHandler(), which touches none of this (the codebase notes).
+bool MSG_IsTransactionPending(void)
+{
+	return gAckPending || (msgRetriesLeft > 0);
+}
+
 void MSG_RetryTick(void)
 {
 	if (msgRetriesLeft == 0)

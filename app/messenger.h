@@ -144,6 +144,11 @@ void MSG_V2WipeIdentity(void);
 bool MSG_SendPacket();
 void MSG_RetryTick(void);       // call once per 500ms timeslice
 
+// True while a message is outstanding: awaiting an ACK, or with retries still
+// to run. Used to refuse entry to screens that would make the radio deaf
+// before the transaction has finished.
+bool MSG_IsTransactionPending(void);
+
 // Counts down in APP_TimeSlice500ms(). Non-zero means the first press of a
 // WIPE+KEY gesture has landed and the second press - within the window - will
 // destroy the key. Zero means disarmed.

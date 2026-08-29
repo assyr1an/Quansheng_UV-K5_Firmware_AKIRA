@@ -26,6 +26,10 @@
   #include "common.h"
 #endif
 #include "action.h"
+#ifdef ENABLE_MESSENGER
+  #include "app/messenger.h"
+  #include "settings.h"
+#endif
 
 struct FrequencyBandInfo {
     uint32_t lower;
@@ -785,6 +789,18 @@ static void DrawStatus() {
 #endif
   GUI_DisplaySmallest(String, 0, 1, true, true);
 
+#ifdef ENABLE_MESSENGER
+  // Spectrum owns the radio and runs no timeslices, so messenger RX is dead for
+  // as long as this screen is up - measured on hardware at 90 consecutive UART
+  // failures open against 1281/0 closed (decision #9). State it rather
+  // than let the operator discover it by missing a message.
+  //
+  // Only shown when the messenger would otherwise be listening; if RX is off
+  // anyway this would be noise, and the status line is already crowded.
+  if (gEeprom.MESSENGER_CONFIG.data.receive)
+    GUI_DisplaySmallest("MSG RX OFF", 56, 1, true, true);
+#endif
+
   BOARD_ADC_GetBatteryInfo(&gBatteryVoltages[gBatteryCheckCounter++ % 4]);
 
   uint16_t voltage = (gBatteryVoltages[0] + gBatteryVoltages[1] + gBatteryVoltages[2] +
@@ -1241,8 +1257,79 @@ static void RenderStill() {
   }
 }
 
+#ifdef ENABLE_MESSENGER
+
+// Which action the operator has bound to this key and press length.
+//
+// Spectrum polls its own keyboard and never reaches ACTION_Handle(), which is
+// why a bound panic wipe was dead here (the codebase notes section 13 #18). Rather
+// than hard-code a key, we read the SAME EEPROM bindings ACTION_Handle() uses,
+// so the gesture the operator configured is the gesture that works - including
+// on the one screen where they are most likely to be caught monitoring.
+static uint8_t SpectrumBoundAction(KEY_Code_t key, bool held) {
+  switch (key) {
+  case KEY_SIDE1:
+    return held ? gEeprom.KEY_1_LONG_PRESS_ACTION : gEeprom.KEY_1_SHORT_PRESS_ACTION;
+  case KEY_SIDE2:
+    return held ? gEeprom.KEY_2_LONG_PRESS_ACTION : gEeprom.KEY_2_SHORT_PRESS_ACTION;
+  case KEY_MENU:
+    return held ? gEeprom.KEY_M_LONG_PRESS_ACTION : ACTION_OPT_NONE;
+  default:
+    return ACTION_OPT_NONE;
+  }
+}
+
+// Mirrors app/action.c exactly. Deliberately a copy rather than a call: the
+// action.c version also sets gRequestDisplayScreen and gUpdateDisplay, which
+// mean nothing inside a modal loop that owns the screen.
+static void SpectrumPanicWipe(uint8_t action) {
+  MSG_Init();
+
+  if (action == ACTION_OPT_PANIC_WIPE) {
+    gPanicWipeArmed_500ms = 0;          // a plain wipe cancels a pending key wipe
+  } else if (gPanicWipeArmed_500ms == 0) {
+    gPanicWipeArmed_500ms = PANIC_WIPE_CONFIRM_500MS;
+  } else {
+    MSG_V2WipeIdentity();
+    gPanicWipeArmed_500ms = PANIC_WIPE_CONFIRM_500MS;   // re-arm to show the result
+  }
+
+  AUDIO_PlayBeep(BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL);
+  redrawScreen = true;
+}
+
+// The prompt, drawn by the spectrum renderer because UI_DisplayMain() does not
+// run here. Same wording as the main screen so the gesture reads identically
+// wherever it is used.
+// One wipe per press. Spectrum's key handler AUTO-REPEATS: while a key is held,
+// kbd.counter oscillates 13->16 and dispatches roughly every 60 ms. Without
+// this latch a single long press would fire the wipe again and again, and the
+// second firing would take the branch that destroys K_master - turning a
+// deliberate two-press gesture into a one-press key wipe. The latch clears only
+// when the key is released or a different key arrives.
+static bool panicLatched = false;
+
+static void RenderPanicWipe() {
+  UI_PrintString("MSGS WIPED", 0, LCD_WIDTH, 1, 8);
+  UI_PrintString(gV2WipeFailed  ? "KEY LEFT!" :
+                 gV2Provisioned ? "AGAIN=KEY" : "KEY GONE",
+                 0, LCD_WIDTH, 3, 8);
+}
+
+#endif
+
 static void Render() {
   memset(gFrameBuffer, 0, sizeof(gFrameBuffer));
+
+#ifdef ENABLE_MESSENGER
+  // While the window is open the prompt owns the screen. The operator needs to
+  // see that the first press landed, and what a second one will do.
+  if (gPanicWipeArmed_500ms > 0) {
+    RenderPanicWipe();
+    ST7565_BlitFullScreen();
+    return;
+  }
+#endif
 
   switch (currentState) {
   case SPECTRUM:
@@ -1272,9 +1359,31 @@ bool HandleUserInput() {
   }
   else {
     kbd.counter = 0;
+#ifdef ENABLE_MESSENGER
+    panicLatched = false;               // key released, or a different key
+#endif
   }
 
   if (kbd.counter == 3 || kbd.counter == 16) {
+#ifdef ENABLE_MESSENGER
+    // Checked before the state dispatch so it works in SPECTRUM, FREQ_INPUT
+    // and STILL alike. It only shadows a spectrum function when the operator
+    // has deliberately bound a wipe to that exact key and press length - and
+    // if they have, "wipe" is what they meant it to do here too.
+    {
+      // Already wiped on this press: swallow everything else it generates,
+      // including the long-press event a continued hold would produce.
+      if (panicLatched)
+        return true;
+
+      const uint8_t bound = SpectrumBoundAction(kbd.current, kbd.counter == 16);
+      if (bound == ACTION_OPT_PANIC_WIPE || bound == ACTION_OPT_PANIC_WIPE_KEY) {
+        panicLatched = true;
+        SpectrumPanicWipe(bound);
+        return true;                    // swallow it
+      }
+    }
+#endif
     switch (currentState) {
     case SPECTRUM:
       OnKeyDown(kbd.current);
@@ -1398,6 +1507,22 @@ static void UpdateListening() {
 }
 
 static void Tick() {
+
+#ifdef ENABLE_MESSENGER
+  // APP_TimeSlice500ms() never runs while this loop owns the CPU, so the
+  // confirmation window has to be counted down here or it would stay armed for
+  // as long as the screen is open - turning a two-press gesture into "press
+  // twice whenever you like".
+  //
+  // This reads gNextTimeslice_500ms without clearing it; the block below does
+  // that. If ENABLE_SCAN_RANGES is ever turned off, nothing clears the flag and
+  // the window expires almost immediately instead of after 3 s. That direction
+  // is fail-safe: an early expiry can only stop a key wipe, never cause one.
+  if (gNextTimeslice_500ms && gPanicWipeArmed_500ms > 0) {
+    if (--gPanicWipeArmed_500ms == 0)
+      redrawScreen = true;              // drop the prompt, restore the spectrum
+  }
+#endif
 
 #ifdef ENABLE_SCAN_RANGES
   if (gNextTimeslice_500ms) {

@@ -253,6 +253,24 @@ void ACTION_Scan(bool bRestart)
 
 void ACTION_RunSpectrum(void)
 {
+	#ifdef ENABLE_MESSENGER
+		// decision #9, confirmed on hardware: the spectrum screen is a
+		// modal loop that runs no timeslices, so while it is open the radio
+		// cannot receive messages, cannot answer the PC, and cannot count a
+		// retry down. Entering it with a message outstanding silently abandons
+		// that transaction - the ACK arrives to a radio that is not listening,
+		// and the retry that would have covered it is frozen too.
+		//
+		// Refuse, and say why. The operator can wipe or let the retries finish;
+		// either way the choice is theirs and it is visible.
+		if (MSG_IsTransactionPending()) {
+			gRequestDisplayScreen = DISPLAY_MAIN;
+			gUpdateDisplay        = true;
+			gBeepToPlay           = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+			return;
+		}
+	#endif
+
 	#ifdef ENABLE_SPECTRUM_CHANNEL_SCAN
 				
 		if(gScanRangeStart){
