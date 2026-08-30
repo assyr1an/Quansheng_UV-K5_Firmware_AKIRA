@@ -135,6 +135,7 @@ says `MSG RX OFF`, but the underlying limitation stands.
 is acceptable here because the threat model puts physical capture first, not someone sitting on
 the programming cable — but it is a real assumption, not an oversight.
 
-**None of this has been validated over the air.** As of 0.9 no message has crossed between two
-radios. The construction is verified against known-answer vectors on the host; the radio link
-is not.
+**The messenger has not been validated over the air.** As of 0.9, voice operation is verified
+against a second transceiver, and the construction is verified against known-answer vectors on
+the host — but no v2 message has crossed between two AKIRA radios, so the FSK message link
+itself is unproven.

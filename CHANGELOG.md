@@ -10,12 +10,13 @@ inherited from upstream and are *their* release history, not AKIRA's.
 
 ## [0.9] — 2026-08-30
 
-First AKIRA release. Feature complete; **not yet validated over the air.**
+First AKIRA release. Feature complete; voice operation verified against a second
+transceiver; **the encrypted messenger is not yet validated over the air.**
 
-> No message has yet crossed between two radios. No ACK has returned, no duplicate has been
-> suppressed, no retry has fired. The 27-test bench list in `docs/PROTOCOL.md` is
-> entirely unrun, and every test in it needs a second transmitter. `1.0.0` is reserved for
-> when that list passes.
+> No v2 message has yet crossed between two AKIRA radios. No ACK has returned, no duplicate
+> has been suppressed, no retry has fired. The 27-test bench list in `docs/PROTOCOL.md` is
+> entirely unrun, and every test in it needs a second UV-K5 running this firmware with the
+> same key. `1.0.0` is reserved for when that list passes.
 
 ### Added — messenger protocol v2
 
@@ -122,4 +123,4 @@ A complete replacement for the v1 wire format. 56-byte frame:
   frame length is not settled by the source, and getting it wrong breaks FSK receive in a way
   indistinguishable from any other RX failure. Poly1305 already rejects corrupted frames.
 
-[0.9]: https://github.com/assyr1an/uv-k5-firmware-custom/releases/tag/0.9
+[0.9]: https://github.com/assyr1an/akira-uvk5/releases/tag/0.9
