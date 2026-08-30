@@ -73,6 +73,39 @@
 
 BEEP_Type_t gBeepToPlay = BEEP_NONE;
 
+void AUDIO_PlayBootTone(void)
+{
+	// A rising major arpeggio - C5 E5 G5 C6. Four notes is enough to read as a
+	// signature rather than a fault beep, and short enough to sit inside the
+	// welcome delay.
+	static const uint16_t notes[4] = { 523, 659, 784, 1047 };
+	uint8_t i;
+
+	// Deliberately gated on the beep setting. In this build the radio is a
+	// preparedness tool, and one you have silenced should stay silent - a
+	// power-on fanfare you cannot suppress is a liability, not a feature.
+	if (!gEeprom.BEEP_CONTROL)
+		return;
+
+	AUDIO_AudioPathOff();
+	SYSTEM_DelayMs(20);
+
+	for (i = 0; i < 4; i++)
+	{
+		BK4819_PlayTone(notes[i], true);
+		SYSTEM_DelayMs(2);
+		AUDIO_AudioPathOn();
+		BK4819_ExitTxMute();
+		SYSTEM_DelayMs(55);
+		BK4819_EnterTxMute();
+	}
+
+	SYSTEM_DelayMs(20);
+	AUDIO_AudioPathOff();
+	SYSTEM_DelayMs(5);
+	BK4819_TurnsOffTones_TurnsOnRX();
+}
+
 void AUDIO_PlayBeep(BEEP_Type_t Beep)
 {
 	uint16_t ToneConfig;

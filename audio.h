@@ -46,6 +46,11 @@ extern BEEP_Type_t       gBeepToPlay;
 
 void AUDIO_PlayBeep(BEEP_Type_t Beep);
 
+// Power-on signature. Plays inside the existing welcome-screen delay, so it
+// adds nothing to boot time. Honours BEEP_CONTROL: a radio you have chosen to
+// keep silent must not announce itself when you switch it on.
+void AUDIO_PlayBootTone(void);
+
 enum
 {
 	VOICE_ID_CHI_BASE = 0x10U,

@@ -172,8 +172,10 @@ void Main(void)
 		UI_DisplayWelcome();
 
 		if (gEeprom.POWER_ON_DISPLAY_MODE != POWER_ON_DISPLAY_MODE_NONE)
-		{	// 2.55 second boot-up screen
-			SYSTEM_DelayMs(2550);
+		{	// 2.55 second boot-up screen, with the signature tone played
+			// INSIDE it rather than before it - boot time is unchanged.
+			AUDIO_PlayBootTone();
+			SYSTEM_DelayMs(2250);
 		}
 		else
 		{

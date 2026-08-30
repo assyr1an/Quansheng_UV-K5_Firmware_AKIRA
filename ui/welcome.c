@@ -44,46 +44,47 @@ void UI_DisplayReleaseKeys(void)
 
 void UI_DisplayWelcome(void)
 {
-	char WelcomeString0[16];
-	char WelcomeString1[16];
-	
+	char line[16];
+	uint8_t i;
+
 	memset(gStatusLine,  0, sizeof(gStatusLine));
 	memset(gFrameBuffer, 0, sizeof(gFrameBuffer));
 
 	if (gEeprom.POWER_ON_DISPLAY_MODE == POWER_ON_DISPLAY_MODE_NONE)
 	{
 		ST7565_BlitFullScreen();
+		return;
+	}
+
+	// The secondary line still carries whatever the display mode asked for, so
+	// the branding costs no information. Battery volts at power-on is worth
+	// keeping in a preparedness build - it is the one moment you always see it.
+	memset(line, 0, sizeof(line));
+	if (gEeprom.POWER_ON_DISPLAY_MODE == POWER_ON_DISPLAY_MODE_VOLTAGE)
+	{
+		sprintf(line, "%u.%02uV %u%%",
+			gBatteryVoltageAverage / 100,
+			gBatteryVoltageAverage % 100,
+			BATTERY_VoltsToPercent(gBatteryVoltageAverage));
 	}
 	else
-	if (gEeprom.POWER_ON_DISPLAY_MODE == POWER_ON_DISPLAY_MODE_FULL_SCREEN)
 	{
-		ST7565_FillScreen(0xFF);
+		EEPROM_ReadBuffer(0x0EC0, line, 16);
 	}
-	else
+
+	// The mark. Drawn rather than stored: two rules straight into the frame
+	// buffer cost a loop and no bitmap data, which matters with ~1 KB of flash
+	// left. gFrameBuffer is [7][128], one byte per column, 8 vertical pixels.
+	for (i = 0; i < 128; i++)
 	{
-		memset(WelcomeString0, 0, sizeof(WelcomeString0));
-		memset(WelcomeString1, 0, sizeof(WelcomeString1));
-
-		if (gEeprom.POWER_ON_DISPLAY_MODE == POWER_ON_DISPLAY_MODE_VOLTAGE)
-		{
-			strcpy(WelcomeString0, "VOLTAGE");
-			sprintf(WelcomeString1, "%u.%02uV %u%%",
-				gBatteryVoltageAverage / 100,
-				gBatteryVoltageAverage % 100,
-				BATTERY_VoltsToPercent(gBatteryVoltageAverage));
-		}
-		else
-		{
-			EEPROM_ReadBuffer(0x0EB0, WelcomeString0, 16);
-			EEPROM_ReadBuffer(0x0EC0, WelcomeString1, 16);
-		}
-
-		UI_PrintString(WelcomeString0, 0, 127, 0, 10);
-		UI_PrintString(WelcomeString1, 0, 127, 2, 10);
-		UI_PrintStringSmall(Version, 0, 128, 6);
-
-		ST7565_BlitStatusLine();  // blank status line
-		ST7565_BlitFullScreen();
+		gFrameBuffer[0][i] = 0b00011000;   // heavy rule above
+		gFrameBuffer[4][i] = 0b00000110;   // lighter rule below
 	}
+
+	UI_PrintString("AKIRA", 0, 127, 1, 12);
+	UI_PrintStringSmall(line, 0, 128, 5);
+	UI_PrintStringSmall(Version, 0, 128, 6);
+
+	ST7565_BlitStatusLine();  // blank status line
+	ST7565_BlitFullScreen();
 }
-
