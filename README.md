@@ -52,8 +52,8 @@ yet pair-validated.</sub>
 |---|---|---|
 | **Messenger v2** | RFC 8439 ChaCha20-Poly1305 on every frame, deterministic nonces, in-session replay suppression, authenticated ACKs, byte-identical auto-retry | Codec verified byte-for-byte against host vectors, in CI · **OTA pair test pending** |
 | **Security** | Two-gesture panic wipe (messages first; key in EEPROM+RAM on confirmed second press, incl. inside spectrum) · on-radio key fingerprint (`KeyID`) · read-back-verified EEPROM writes | Built and flashed · wipe gestures need bench eyes |
-| **Monitoring** | Interval-driven priority scanning · scan-hit auto-store · bounded activity log · 16-entry message ring with paging | Built and flashed · scan cadence unbenched |
-| **Host tools** | EEPROM backup, flashing, key provisioning, channel programming from JSON, self-test, calibration guard | Used for every flash of this firmware to date |
+| **Monitoring** | **18 MHz – 1300 MHz receive** — the BK4819's full range, less its own 630–840 MHz gap · interval-driven priority scanning · scan-hit auto-store · bounded activity log · 16-entry message ring with paging | Wide RX built and flashed · scan cadence unbenched |
+| **Host tools** | EEPROM backup, flashing, key provisioning, channel programming from JSON, TX-band policy, self-test, calibration guard | Used for every flash of this firmware to date |
 
 <div align="center">
 <picture>

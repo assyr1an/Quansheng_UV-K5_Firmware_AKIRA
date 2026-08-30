@@ -13,6 +13,7 @@ header of `k5_protocol.py` for the citation list. Python 3, one dependency: `pip
 | `k5_selftest.py` | Post-flash self-check: version, battery, RSSI, and a byte-level EEPROM comparison against the pre-flash backup |
 | `k5_channels.py` | Programs memory channels from a JSON plan file (`channels.example.json`), read-back verified |
 | `k5_activity.py` | Dumps the scanner activity log over UART |
+| `k5_flock.py` | Reads/sets the TX band policy (`F Lock`) and its sub-toggles — the menu item the radio hides unless booted holding PTT + SIDE1. Read-back verified |
 | `v2-reference/` | The protocol v2 host reference (pure Python) and the known-answer vectors the firmware must reproduce byte-for-byte |
 | `v2-vectors-test/` | Compiles the firmware's own v2 codec for the host and checks it against the vectors — `bash run.sh`. No radio needed |
 
