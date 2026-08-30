@@ -16,7 +16,19 @@
 ## Size
 
 ```
-text before:
-text after:
+text+data before:
+text+data after:
 delta:
 ```
+
+## Test output
+
+<!-- Paste build output / vector-test output here. For crypto changes this is required. -->
+
+## Hardware tested
+
+<!-- Radio model + what you observed, or "build-only". -->
+
+## Protocol / security impact
+
+<!-- "None", or describe. Anything touching the frozen wire format needs a linked issue. -->

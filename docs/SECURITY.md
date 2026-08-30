@@ -27,7 +27,7 @@ than from a generic checklist.
 | 1 | **Physical capture of a radio** | Partly — panic wipe destroys messages and, on a confirmed second press, the key |
 | 2 | **Forgery** — someone injecting messages that appear to come from your group | **Yes.** Poly1305 over header and ciphertext |
 | 3 | **Modification** — flipping bits in a message in flight | **Yes.** Same tag |
-| 4 | **Replay** — recording a real message and re-sending it later | **Yes.** Per-sender counter window |
+| 4 | **Replay** — recording a real message and re-sending it later | **Partial.** In-session only — see Limitations |
 | 5 | **False delivery confirmation** — a spoofed ACK | **Yes.** ACKs are authenticated and name their message |
 | 6 | **Interception** — reading message content off the air | **Yes**, while the key holds |
 | 7 | **Traffic analysis** — who is talking, how much | **No, by design** |
@@ -87,7 +87,9 @@ the radio.
 Stored at EEPROM `0x1D00`, the one region a CHIRP upload cannot reach — the driver's
 `PROG_SIZE` is `0x1d00`, so it reads the whole EEPROM but writes only below that.
 
-**One key per group.** Every radio holds the same key and a different sender ID. Two radios
+**One key per group.** Every radio holds the same key and a different sender ID. Note that
+every provisioned radio, and **every post-provision EEPROM dump, contains the key** — treat
+dumps as secret-bearing backups. Two radios
 sharing a sender ID would reuse nonces, so the provisioning tool refuses to issue a duplicate.
 
 `KeyID` shows a six-character fingerprint so two operators can confirm they match with no
@@ -135,9 +137,13 @@ radio.
 
 **No protection against jamming or flooding.**
 
-**The replay window is 4 entries and RAM-only.** It resets on reboot, costing at most one
-re-displayed message. With more than four active senders an entry can be evicted, which resets
-that sender's window.
+**Replay protection is in-session only.** The 4-entry window is RAM-only and resets on
+reboot — after which an attacker who recorded earlier traffic can replay the entire captured
+transcript in ascending counter order and every frame will be accepted and re-displayed (they
+still cannot forge or modify anything). A legitimate peer costs one re-displayed message; a
+recording adversary costs the whole recording, once per reboot. With more than four active
+senders an entry can be evicted, which resets that sender's window the same way. Persisting
+receive state would close this and is a candidate for a future release.
 
 **The radio is deaf while the spectrum screen is open.** It runs no timeslices, so messages,
 UART and timers all stop. Entry is refused while a message is in flight, and the status line

@@ -7,8 +7,8 @@ given alongside.
 
 ## Build
 
-The toolchain is pinned in a container, so the build is reproducible and needs nothing
-installed beyond Docker.
+The toolchain lives in a container whose base image is pinned by digest, so the build is
+reproducible and needs nothing installed beyond Docker.
 
 ```sh
 docker build -t akira .
@@ -92,7 +92,7 @@ Then **power-cycle normally, no buttons held.**
 
 ```sh
 # 1. it came back, and it is the build you meant
-python tools/k5_selftest.py --port COM22 --expect-version AKIRA
+python tools/k5_selftest.py --port COM22 --expect-version-exact "AKIRA 0.9"
 
 # 2. nothing else in EEPROM moved
 python tools/k5_guard.py --port COM22 --baseline <pre-flash>.raw --allow 0x0E80-0x0E88
@@ -127,8 +127,10 @@ The key is generated on the host with `secrets.token_bytes`, never on the radio 
 noise-derived RNG measures roughly 56 usable bits in 96 and fails NIST SP 800-90B repetition
 count.
 
-**The keyfile is the only copy.** Lose it before a second radio is keyed and you re-mint at no
-cost; lose it after and both radios must be re-provisioned together.
+**The keyfile is the provisioning copy.** Every provisioned radio — and every post-provision
+EEPROM dump — also contains the key, so treat dumps as secret-bearing backups. Lose the keyfile
+before a second radio is keyed and you re-mint at no cost; lose it after and both radios must
+be re-provisioned together.
 
 Check `KeyID` in the menu matches the fingerprint the tool printed. If it does not, the key on
 the radio is not the one in the file.
@@ -145,5 +147,6 @@ Compiles the firmware's **own** `v2frame.c`, `poly1305.c` and `chacha.c` for the
 them against known-answer vectors: 6 frames byte-for-byte, 336 single-byte tamper rejections,
 and wrong-key rejection.
 
-Re-run it after touching any of those three files. It proves the construction is correct; it
-proves nothing about the air interface.
+Re-run it after touching any of those three files. It shows the firmware codec matches the
+reference vectors byte-for-byte; it proves nothing about counter persistence, integration, or
+the air interface.

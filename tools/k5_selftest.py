@@ -43,7 +43,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", required=True)
     ap.add_argument("--baseline", help="pre-flash EEPROM dump to compare against")
-    ap.add_argument("--expect-version", default=EXPECT_VERSION)
+    ap.add_argument("--expect-version", default=EXPECT_VERSION,
+                    help="prefix the reported version must start with")
+    ap.add_argument("--expect-version-exact",
+                    help='exact reported version, e.g. "AKIRA 0.9"')
     args = ap.parse_args()
 
     try:
@@ -61,9 +64,14 @@ def main():
         # ---------------------------------------------------------- identity
         print("1. FIRMWARE IDENTITY")
         info = link.hello()
-        check(f"version reports {info['version']!r}",
-              info["version"].startswith(args.expect_version),
-              f"expected a version starting {args.expect_version!r}")
+        if args.expect_version_exact:
+            check(f"version reports {info['version']!r}",
+                  info["version"] == args.expect_version_exact,
+                  f"expected exactly {args.expect_version_exact!r}")
+        else:
+            check(f"version reports {info['version']!r}",
+                  info["version"].startswith(args.expect_version),
+                  f"expected a version starting {args.expect_version!r}")
         check("radio is not locked",
               not (info["has_custom_aes_key"] and info["in_lock_screen"]),
               f"custom AES key={info['has_custom_aes_key']}  lock screen={info['in_lock_screen']}")

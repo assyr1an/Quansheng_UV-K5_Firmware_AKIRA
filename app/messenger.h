@@ -124,7 +124,8 @@ void MSG_V2WipeIdentity(void);
 //
 // Four is enough for a flat broadcast group of this size. When it fills, the
 // oldest slot is reused - only frames that have already AUTHENTICATED ever
-// reach the table, so an attacker cannot churn it without the key.
+// reach the table, so forged frames cannot churn it. Replayed authentic
+// frames can (docs/SECURITY.md, Limitations): protection is in-session only.
 #define V2_DEDUP_SIZE  4u
 
 // Feature #1 - auto-retry. Timing measured from the source, not guessed:

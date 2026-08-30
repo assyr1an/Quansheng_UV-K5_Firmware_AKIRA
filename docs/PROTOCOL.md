@@ -27,6 +27,11 @@ patch. There is deliberately no compatibility path — see Versioning.
 
 ## Frame
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/frame-dark.svg">
+  <img src="../images/frame-light.svg" alt="v2 frame layout" width="700">
+</picture>
+
 56 bytes, even (the FSK FIFO is written as 16-bit words):
 
 ```
@@ -114,8 +119,8 @@ v2.
 
 The BK4819's hardware CRC is left **disabled** for now: whether `REG_5C` bit 6 is transparent to
 the declared frame length is not settled by the source, and getting it wrong breaks FSK receive
-undiagnosably. Poly1305 already rejects every corrupted frame with certainty; the CRC would buy
-only earlier rejection. It is a one-line bench experiment (test 9 below).
+undiagnosably. Poly1305 already rejects corrupted frames (except with negligible authentication-failure
+probability); the CRC would buy only earlier rejection. It is a one-line bench experiment (test 9 below).
 
 ## ACK, replay, and retry
 
@@ -131,7 +136,9 @@ outstanding transaction; a stale or foreign ACK confirms nothing.
 - `counter == highest` — duplicate: re-ACK, do **not** re-display. This is what makes retry safe.
 - `counter < highest` — replay: drop silently.
 
-The window resets on reboot, costing at most one re-displayed message.
+The window is RAM-only: a reboot resets it, and an attacker who recorded earlier traffic can
+then replay the captured transcript in ascending order (each frame re-displayed, never forged).
+See `SECURITY.md`, Limitations — replay protection is **in-session only**.
 
 **Retry retransmits the byte-identical frame** — same counter, nonce, ciphertext and tag — so it
 consumes no nonce and the far end deduplicates it. 4-second timeout, 3 transmissions total, `MsgRty`
@@ -159,7 +166,7 @@ could invalidate the whole design fail first. Radios A and B share a key and dif
 | 4 | **Authenticated ACK returns** | A shows `+` on the sent line |
 | 5 | **Wrong key is rejected silently** — reprovision B with a different key, send from A | B displays nothing |
 | 6 | **v1 and v2 radios are deaf to each other** — flash one radio to a pre-v2 build, send both ways | Neither sees the other's traffic, no garbage frames |
-| 7 | **Counter survives a power cycle** — send 3, power cycle, send 3 more, reading `0x1D24` each time | Counter never repeats, never goes backwards; skips ≤64 are expected |
+| 7 | **Counter survives a power cycle** — send 3, power cycle, send 3 more, reading the reservation ceiling at `0x1D24` each time (the live counter advances in RAM; the ceiling is what guards uniqueness) | Ceiling never goes backwards across reboots; skips ≤64 are expected |
 | 8 | **Unprovisioned radio refuses to transmit** — blank `0x1D00` on B and try to send | Double beep, nothing transmitted |
 | 9 | **Hardware CRC experiment** — `REG_5C` `0x5625` → `0x5665` on both radios, repeat test 2 | Either outcome settles the question; revert if it fails |
 | 10 | **Airtime** — time a send at FSK-450 against the 2000 ms timeout | Completes well inside |
@@ -167,7 +174,7 @@ could invalidate the whole design fail first. Radios A and B share a key and dif
 | 12 | **WIPE+KEY, both presses** — press twice inside the 3 s window | `KEY GONE`; `--show` reports UNPROVISIONED at all three fields; a send attempt refuses |
 | 13 | **Re-provision after a wipe** | New `sender_id` minted (the tool refuses to reissue one), counter restarts, messaging works |
 | 14 | **Duplicate suppression** — have A retransmit an identical frame (pull B's antenna during the first ACK) | B displays the message once, re-ACKs with a new counter; A marks `+` |
-| 15 | **Replay rejection** — capture a frame, re-send it after newer traffic has passed | B displays nothing, no ACK |
+| 15 | **Replay rejection** — capture a frame, re-send it after newer traffic has passed (needs a capture-and-replay-capable transmitter, e.g. an SDR, or a third provisioned radio) | B displays nothing, no ACK |
 | 16 | **ACK matching** — with A awaiting an ACK, have B send an ACK naming a different counter | A does not mark `+` |
 | 17 | **Replay window resets on reboot** — power-cycle B, resend the last message | B re-displays it once (RAM-only, by design — costs exactly one message) |
 | 18 | **Retry fires on a lost ACK** — B's antenna off, restore after ~2 s | A retransmits at ~4 s; B displays once; A ends `+` |

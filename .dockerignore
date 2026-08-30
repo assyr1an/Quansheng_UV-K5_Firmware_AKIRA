@@ -1,0 +1,12 @@
+.git
+v2-key.json
+*.key.json
+*.raw
+backups/
+out/
+compiled-firmware/
+firmware
+firmware.bin
+firmware.packed.bin
+*.o
+*.d

@@ -5,3 +5,9 @@ firmware
 /firmware.bin
 /compiled-firmware
 /.vscode/*
+# Secrets and radio backups must never reach a commit
+v2-key.json
+*.key.json
+*.raw
+backups/
+out/

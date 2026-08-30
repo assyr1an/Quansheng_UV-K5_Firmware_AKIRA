@@ -62,21 +62,26 @@ def load_keyfile(path):
 
 
 def save_keyfile(path, data):
-    with open(path, "w", encoding="utf-8") as f:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     print("  keyfile written: " + path)
     print("  KEEP THIS FILE. It is the only copy of the key, and the second")
     print("  radio needs the identical key to talk to the first.")
 
 
-def show(link):
+def mask(hexstr, reveal):
+    return hexstr if reveal else hexstr[:4] + "..." + hexstr[-4:] + "  (use --show-secret for the full key)"
+
+
+def show(link, reveal=False):
     key = link.read_eeprom(KEY_ADDR, KEY_LEN)
     identity = link.read_eeprom(IDENTITY_ADDR, 8)
     sender_id, counter = struct.unpack("<II", identity)
 
     blank_key = all(b == 0xFF for b in key)
     print("  key      0x1D00  " +
-          ("UNPROVISIONED (all 0xFF)" if blank_key else key.hex()))
+          ("UNPROVISIONED (all 0xFF)" if blank_key else mask(key.hex(), reveal)))
     print("  sender   0x1D20  0x%08X%s" %
           (sender_id, "  UNPROVISIONED" if sender_id in (0xFFFFFFFF, 0) else ""))
     print("  counter  0x1D24  %d%s" %
@@ -96,6 +101,8 @@ def main():
                          "the keyfile")
     ap.add_argument("--sender-id", type=lambda s: int(s, 0),
                     help="force a specific sender_id instead of minting one")
+    ap.add_argument("--show-secret", action="store_true",
+                    help="print the full key hex instead of a masked form")
     ap.add_argument("--show", action="store_true",
                     help="read the identity back and change nothing")
     ap.add_argument("--label", default="",
@@ -114,7 +121,7 @@ def main():
         print("radio: %s\n" % info["version"])
 
         print("current state:")
-        _cur_key, cur_sender, cur_counter = show(link)
+        _cur_key, cur_sender, cur_counter = show(link, args.show_secret)
 
         if args.show:
             return 0
@@ -181,7 +188,7 @@ def main():
                   "repeat nonces already sent" % counter)
 
         print("\nabout to write:")
-        print("  key       %s" % key.hex())
+        print("  key       %s" % mask(key.hex(), args.show_secret))
         print("  sender_id 0x%08X" % sender_id)
         print("  counter   %d" % counter)
         if not args.yes:

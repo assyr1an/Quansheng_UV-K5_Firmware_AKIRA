@@ -11,9 +11,8 @@ Authenticated, encrypted radio-to-radio messaging that works with no network, no
 and no third party — plus the monitoring features needed to know what is on the air around you.
 
 [![build](https://github.com/assyr1an/akira-uvk5/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/assyr1an/akira-uvk5/actions/workflows/main.yml)
-[![release](https://img.shields.io/badge/release-0.9-orange)](https://github.com/assyr1an/akira-uvk5/releases)
+[![release](https://img.shields.io/badge/release-0.9-orange)](https://github.com/assyr1an/akira-uvk5/releases/tag/0.9)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
-[![platform](https://img.shields.io/badge/platform-UV--K5%20·%20DP32G030-555)](#hardware)
 [![crypto](https://img.shields.io/badge/AEAD-ChaCha20--Poly1305-6f42c1)](docs/PROTOCOL.md)
 
 [**Building**](docs/BUILDING.md) · [**Protocol**](docs/PROTOCOL.md) · [**Security model**](docs/SECURITY.md) · [**Host tools**](tools/) · [**Changelog**](CHANGELOG.md)
@@ -30,9 +29,41 @@ and no third party — plus the monitoring features needed to know what is on th
 > UV-K5s holding the same key, and the [27-test bench list](docs/PROTOCOL.md#bench-validation--the-27-tests-between-09-and-100)
 > is what stands between 0.9 and `1.0.0`.
 
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/screen-boot-dark.svg">
+  <img src="images/screen-boot-light.svg" alt="AKIRA boot screen" width="360">
+</picture>&nbsp;&nbsp;
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/screen-messenger-dark.svg">
+  <img src="images/screen-messenger-light.svg" alt="AKIRA messenger screen" width="360">
+</picture>
+
+<sub>Renders of the actual 128×64 UI, generated from the firmware's own font tables and draw
+code. `+` = delivery-confirmed by an authenticated ACK. The over-the-air link itself is not
+yet pair-validated.</sub>
+
+</div>
+
 ## What AKIRA adds
 
-**Messenger protocol v2** — a complete replacement for the inherited v1 wire format.
+| | Capability | Evidence / status |
+|---|---|---|
+| **Messenger v2** | RFC 8439 ChaCha20-Poly1305 on every frame, deterministic nonces, in-session replay suppression, authenticated ACKs, byte-identical auto-retry | Codec verified byte-for-byte against host vectors, in CI · **OTA pair test pending** |
+| **Security** | Two-gesture panic wipe (messages first; key in EEPROM+RAM on confirmed second press, incl. inside spectrum) · on-radio key fingerprint (`KeyID`) · read-back-verified EEPROM writes | Built and flashed · wipe gestures need bench eyes |
+| **Monitoring** | Interval-driven priority scanning · scan-hit auto-store · bounded activity log · 16-entry message ring with paging | Built and flashed · scan cadence unbenched |
+| **Host tools** | EEPROM backup, flashing, key provisioning, channel programming from JSON, self-test, calibration guard | Used for every flash of this firmware to date |
+
+<div align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/frame-dark.svg">
+  <img src="images/frame-light.svg" alt="v2 frame layout" width="700">
+</picture>
+</div>
+
+<details>
+<summary><b>Protocol design details</b></summary>
 
 * **RFC 8439 ChaCha20-Poly1305** on every frame, with the header as additional authenticated
   data, so the version, type, sender and counter are authenticated alongside the payload.
@@ -41,41 +72,22 @@ and no third party — plus the monitoring features needed to know what is on th
   values regardless of input.
 * **Deterministic nonces** — `sender_id ‖ counter ‖ type`. Nonces need uniqueness, not
   unpredictability, which removes any dependence on the radio's very weak hardware RNG.
-* **Replay and duplicate suppression** — a per-sender counter window. A duplicate is
-  re-acknowledged but never re-displayed; an older frame is dropped silently.
+* **In-session replay and duplicate suppression** — a per-sender counter window. A duplicate
+  is re-acknowledged but never re-displayed; an older frame is dropped silently. The window is
+  RAM-only and resets on reboot ([`docs/SECURITY.md`](docs/SECURITY.md), Limitations).
 * **Authenticated ACKs** that name the exact message they acknowledge, so a stale ACK cannot
   confirm a different transaction.
 * **Automatic retry** by byte-identical retransmission, consuming no additional nonce.
 * **A different FSK sync word from v1**, so the two protocols are invisible to each other at
   the hardware layer.
+* **Removed on purpose:** AirCopy (it clones the encryption key over the air, and would clone
+  the per-radio sender identity into nonce reuse) and the v1 `EncKey` / `MsgEnc` menus (they
+  edited a secret protocol v2 does not read).
 
-**Security**
+Full specification: [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Threat model and limitations —
+the honest half: [`docs/SECURITY.md`](docs/SECURITY.md).
 
-* **Two-gesture panic wipe** — one press clears every plaintext buffer; a confirmed second
-  press destroys the master key in EEPROM as well as RAM. It works from the main screen *and*
-  from inside the spectrum analyser.
-* **On-radio key fingerprint** (`KeyID`) so two operators can confirm they hold the same key
-  with no computer present.
-* **Verified writes** — every EEPROM write the crypto depends on is read back and checked,
-  because the driver's write is fire-and-forget and a failed burn is otherwise silent.
-
-**Monitoring**
-
-* **Priority-channel scanning** with a configurable interval, **scan-hit auto-store**, a
-  **bounded activity log**, and a **16-entry message ring** with paging.
-
-**Host tooling** — [`tools/`](tools/)
-
-* EEPROM backup and verification, firmware flashing, key provisioning, channel programming
-  from a JSON plan, a post-flash self-test, and a safety gate that refuses to let a session
-  continue if factory RF calibration has changed.
-* A pure-Python protocol reference and a vector test that compiles the firmware's **own**
-  crypto for the host and checks it against known-answer frames — the construction is
-  verifiable on a laptop, with no radio at all.
-
-**Removed on purpose:** AirCopy (it clones the encryption key over the air, and would clone the
-per-radio sender identity into nonce reuse) and the v1 `EncKey` / `MsgEnc` menus (they edited a
-secret protocol v2 does not read).
+</details>
 
 ## Hardware
 
@@ -91,23 +103,42 @@ recommended.
 
 ## Quick start
 
+**1. Get the firmware** — download `akira-0.9.bin` (and verify against `SHA256SUMS`) from the
+[latest release](https://github.com/assyr1an/akira-uvk5/releases/tag/0.9), or build it yourself:
+
 ```sh
-# Build (reproducible, toolchain pinned in the container)
 docker build -t akira .
 docker run --rm -v "$PWD/out:/out" akira \
   /bin/bash -c "cd /app && make && cp firmware.bin /out/"
+```
 
+`akira-0.9.bin` / `firmware.bin` is for the included flasher below; `akira-0.9.packed.bin` is
+for the stock Quansheng flasher.
+
+**2. Back up, flash, verify** — the host tools need Python 3 and one package
+(`python -m pip install -r tools/requirements.txt`):
+
+```sh
 # Back up the radio's EEPROM — not optional
-python tools/k5_eeprom_dump.py --port COM22 --radio k5-A
+python tools/k5_eeprom_dump.py --port <PORT> --radio k5-A
 
 # Flash (bootloader: hold PTT, switch on), then verify
-python tools/k5_flash.py --port COM22 --file out/firmware.bin --yes
-python tools/k5_selftest.py --port COM22 --expect-version AKIRA
-python tools/k5_guard.py --port COM22 --baseline <backup>.raw --allow 0x0E80-0x0E88
+python tools/k5_flash.py --port <PORT> --file akira-0.9.bin --yes
+python tools/k5_selftest.py --port <PORT> --expect-version-exact "AKIRA 0.9"
+python tools/k5_guard.py --port <PORT> --baseline <backup>.raw --allow 0x0E80-0x0E88
 
 # Provision the messenger key (first radio mints it; later radios share it)
-python tools/k5_provision.py --port COM22 --new-key --keyfile v2-key.json
+python tools/k5_provision.py --port <PORT> --new-key --keyfile v2-key.json
 ```
+
+<details>
+<summary>Finding <code>&lt;PORT&gt;</code> on your OS</summary>
+
+- **Windows** — Device Manager → Ports; typically `COM5`, `COM22`, …
+- **Linux** — `ls /dev/ttyUSB*` (FTDI/CH340); add yourself to the `dialout` group or use `sudo`.
+- **macOS** — `ls /dev/tty.usbserial-*` or `/dev/tty.wchusbserial*`.
+
+</details>
 
 Full instructions, including the bootloader sequence and the three post-flash checks, are in
 [`docs/BUILDING.md`](docs/BUILDING.md).
@@ -142,27 +173,24 @@ single most useful contribution right now is
 Exploitable vulnerabilities: use private reporting — see the top of
 [`docs/SECURITY.md`](docs/SECURITY.md).
 
-## Lineage and licence
+## Lineage, credits and licence
 
 AKIRA is a fork of [kamilsss655/uv-k5-firmware-custom](https://github.com/kamilsss655/uv-k5-firmware-custom)
-(the "nunu" firmware), which is itself a fork of
+(the "nunu" firmware), itself a fork of
 [Egzumer](https://github.com/egzumer/uv-k5-firmware-custom), derived in turn from
 [joaquimorg](https://github.com/joaquimorg) and
 [DualTachyon](https://github.com/DualTachyon)'s open re-implementation of the stock firmware.
+**The vast majority of this radio's behaviour — the RF driver, the UI, the spectrum analyser,
+the scanner — is upstream work, and AKIRA would not exist without it.**
 
 Licensed under the Apache License 2.0. Copyright notices in inherited files belong to their
-original authors and are unchanged; files original to AKIRA carry their own. **The vast
-majority of this radio's behaviour — the RF driver, the UI, the spectrum analyser, the scanner
-— is upstream work, and AKIRA would not exist without it.**
+original authors and are unchanged; files original to AKIRA carry their own. Forked at
+upstream v.20.5 — the mesh "NUNU Protocol" advertised by upstream landed in v.21.0 and is
+**not** present in this tree; AKIRA's messenger is a flat broadcast group. The unmodified
+upstream history is preserved on the [`upstream`](../../tree/upstream) branch.
 
-Forked at upstream v.20.5. Note that the mesh "NUNU Protocol" advertised by upstream landed in
-v.21.0 and is **not** present in this tree — AKIRA's messenger is a flat broadcast group. The
-unmodified upstream history is preserved on the [`upstream`](../../tree/upstream) branch.
-
-## Credits
-
-AKIRA stands on a long chain of work, and the radio's core behaviour — the RF driver, the UI,
-the spectrum analyser, the scanner — is not mine:
+<details>
+<summary><b>Full credits</b></summary>
 
 * [kamilsss655](https://github.com/kamilsss655) — the fork AKIRA is built from, including the
   FSK messenger this project's protocol v2 replaces
@@ -172,6 +200,8 @@ the spectrum analyser, the scanner — is not mine:
 * [OneOfEleven](https://github.com/OneOfEleven), [Mikhail](https://github.com/fagci),
   [Andrej](https://github.com/Tunas1337), [Manuel](https://github.com/manujedi),
   [@Matoz](https://github.com/spm81) and the many others credited upstream
+
+</details>
 
 > [!WARNING]
 > Users are responsible for ensuring compliance with all local laws and regulations governing
