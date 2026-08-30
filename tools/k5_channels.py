@@ -50,9 +50,16 @@ from k5_protocol import K5Link  # noqa: E402
 
 ATTR_BASE = 0x0D60
 
-# dcs.c:27 — index into CTCSS_Options, value is Hz. A subset; to use another
-# tone, add its index from the firmware's CTCSS_Options table.
-CTCSS = {77.0: 4, 82.5: 6, 88.5: 8, 103.5: 13, 118.8: 17}
+# dcs.c:27 — the firmware's full CTCSS_Options[55] table, Hz -> index.
+_CTCSS_TABLE = [
+    67.0, 69.3, 71.9, 74.4, 77.0, 79.7, 82.5, 85.4, 88.5, 91.5,
+    94.8, 97.4, 100.0, 103.5, 107.2, 110.9, 114.8, 118.8, 123.0, 127.3,
+    131.8, 136.5, 141.3, 146.2, 151.4, 156.7, 159.8, 162.2, 165.5, 167.9,
+    171.3, 173.8, 177.3, 179.9, 183.5, 186.2, 189.9, 192.8, 196.6, 199.5,
+    203.5, 206.5, 210.7, 218.1, 225.7, 229.1, 233.6, 241.8, 250.3, 254.1,
+    55.0, 57.5, 60.0, 62.5, 65.0,   # non-standard values
+]
+CTCSS = {hz: i for i, hz in enumerate(_CTCSS_TABLE)}
 
 CODE_OFF = 0
 CODE_CTCSS = 1
@@ -136,9 +143,8 @@ def load_plan(path):
         try:
             tone = c.get("tone")
             if tone is not None and tone not in CTCSS:
-                sys.exit(f"channel {i+1} ({c.get('name')}): tone {tone} is not in this "
-                         f"tool's CTCSS subset {sorted(CTCSS)} — add its index from "
-                         f"the firmware's dcs.c CTCSS_Options table")
+                sys.exit(f"channel {i+1} ({c.get('name')}): tone {tone} is not in the "
+                         f"firmware's CTCSS table (dcs.c CTCSS_Options)")
             plan.append(Ch(
                 name=c["name"][:10],
                 rx=c["rx"],
