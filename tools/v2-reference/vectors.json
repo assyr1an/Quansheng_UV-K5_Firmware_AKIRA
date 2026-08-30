@@ -1,0 +1,73 @@
+{
+  "spec": "Protocol v2 Profile A (ChaCha20-Poly1305, RFC 8439)",
+  "generated_by": "v2_frame.py",
+  "master_key_hex": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+  "fingerprint": "WFP0NJ",
+  "frame_len": 56,
+  "header_len": 10,
+  "payload_len": 30,
+  "tag_len": 16,
+  "note": "The ChaCha20 key IS the master key. Poly1305 uses a PER-MESSAGE one-time key from RFC 8439 2.6 - never a fixed K_mac.",
+  "cases": [
+    {
+      "name": "empty",
+      "type": 2,
+      "sender_id": 1,
+      "counter": 0,
+      "payload_hex": "",
+      "nonce_hex": "010000000000000002000000",
+      "header_hex": "02020100000000000000",
+      "frame_hex": "02020100000000000000620e810d4472bbcba388a17d935834f59ec5100c7e68fe0a85bb590532622cb31ce9548c90eda368521d76620ed0"
+    },
+    {
+      "name": "short",
+      "type": 2,
+      "sender_id": 2712847316,
+      "counter": 42,
+      "payload_hex": "68656c6c6f2066726f6d204b352d41",
+      "nonce_hex": "d4c3b2a12a00000002000000",
+      "header_hex": "0202d4c3b2a12a000000",
+      "frame_hex": "0202d4c3b2a12a0000000e34a4e0d824b161dd74d357938521ddc90ebe1811aca02c73e9d9d062abfd4e4903cf5269a002d7a660f2ce6b49"
+    },
+    {
+      "name": "full30",
+      "type": 2,
+      "sender_id": 3735928559,
+      "counter": 1,
+      "payload_hex": "414141414141414141414141414141414141414141414141414141414141",
+      "nonce_hex": "efbeadde0100000002000000",
+      "header_hex": "0202efbeadde01000000",
+      "frame_hex": "0202efbeadde01000000f20b0fec5c37ae901ae3fea4696520ab2eda766adad253714b17ac9312b5ce92605776b897a2c4bbad604e428f35"
+    },
+    {
+      "name": "counter_max",
+      "type": 2,
+      "sender_id": 305419896,
+      "counter": 4294967295,
+      "payload_hex": "726f6c6c6f766572",
+      "nonce_hex": "78563412ffffffff02000000",
+      "header_hex": "020278563412ffffffff",
+      "frame_hex": "020278563412ffffffff93ecde77c6aa87b07cf37e1b4ae74e935e4d7e2eb1554882e8338f9ec97e1ba824a2563f3d44f78853e536d7b62c"
+    },
+    {
+      "name": "plain_msg",
+      "type": 1,
+      "sender_id": 11259375,
+      "counter": 99,
+      "payload_hex": "756e656e637279707465642074797065",
+      "nonce_hex": "efcdab006300000001000000",
+      "header_hex": "0201efcdab0063000000",
+      "frame_hex": "0201efcdab006300000027e23e6ba40b6b385ef2f0713792c4448a8d40b0f7d5931d7c3b67ff331d5673d7197a9e627144196e299d336fca"
+    },
+    {
+      "name": "ack",
+      "type": 4,
+      "sender_id": 286335522,
+      "counter": 7,
+      "payload_hex": "d4c3b2a12a000000",
+      "nonce_hex": "222211110700000004000000",
+      "header_hex": "02042222111107000000",
+      "frame_hex": "02042222111107000000d862c55f400dc295814538f2ec28af6ab602aed7814ceb4d2c38aa9d1ea6f503c2239d559d5a27d755f673291a6b"
+    }
+  ]
+}

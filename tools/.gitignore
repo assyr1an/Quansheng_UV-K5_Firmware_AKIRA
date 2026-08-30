@@ -1,0 +1,6 @@
+__pycache__/
+backups/
+*.raw
+# The provisioning keyfile must never reach a commit.
+v2-key.json
+*.key.json

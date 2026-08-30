@@ -9,7 +9,7 @@ the air around you.
 > **Status: 0.9 — feature complete, not yet validated over the air.**
 > Everything below is built, reviewed and CI-green, and runs on real hardware. But no message
 > has yet crossed between two radios: no ACK has returned, no duplicate has been suppressed,
-> no retry has fired. `1.0.0` is reserved for when the 29-test bench list passes on a pair.
+> no retry has fired. `1.0.0` is reserved for when the 27-test bench list passes on a pair.
 
 ## What AKIRA adds
 
@@ -70,7 +70,9 @@ v.21.0 and is **not** present in this tree — AKIRA's messenger is a flat broad
 | | |
 |---|---|
 | [`docs/BUILDING.md`](docs/BUILDING.md) | Build, flash, provision, verify |
+| [`docs/PROTOCOL.md`](docs/PROTOCOL.md) | The messenger v2 wire format and semantics, and the bench list gating 1.0.0 |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model, construction, and the limitations |
+| [`tools/`](tools/) | Host tooling — backup, flash, provision, verify, and the host-side crypto tests |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed, and what is still unproven |
 
 ## Hardware
@@ -87,7 +89,8 @@ the included `k5_guard.py` refuses to let a session continue if calibration has 
 
 ```sh
 docker build -t akira .
-docker run --rm -v "$PWD/out:/out" akira \n  /bin/bash -c "cd /app && make && cp firmware.bin /out/"
+docker run --rm -v "$PWD/out:/out" akira \
+  /bin/bash -c "cd /app && make && cp firmware.bin /out/"
 ```
 
 Full instructions, including the bootloader sequence and the three post-flash checks, are in

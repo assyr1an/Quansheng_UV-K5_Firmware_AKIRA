@@ -1,0 +1,17 @@
+{
+  "comment": "Example plan: amateur calling channels, PMR446, and two listen-only slots. Replace with your own. Check the licensing rules that apply to you before transmitting on anything.",
+  "channels": [
+    { "name": "2m call",   "rx": 145.500, "bw": "wide" },
+    { "name": "70cm call", "rx": 433.500, "bw": "wide" },
+    { "name": "PMR446-1",  "rx": 446.00625 },
+    { "name": "PMR446-2",  "rx": 446.01875 },
+    { "name": "PMR446-3",  "rx": 446.03125 },
+    { "name": "PMR446-4",  "rx": 446.04375 },
+    { "name": "PMR446-5",  "rx": 446.05625 },
+    { "name": "PMR446-6",  "rx": 446.06875 },
+    { "name": "PMR446-7",  "rx": 446.08125 },
+    { "name": "PMR446-8",  "rx": 446.09375 },
+    { "name": "Marine16",  "rx": 156.800, "step": "25" },
+    { "name": "Air 121.5", "rx": 121.500, "mod": "AM", "step": "25" }
+  ]
+}

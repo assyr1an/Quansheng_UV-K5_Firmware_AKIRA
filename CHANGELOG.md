@@ -13,7 +13,7 @@ inherited from upstream and are *their* release history, not AKIRA's.
 First AKIRA release. Feature complete; **not yet validated over the air.**
 
 > No message has yet crossed between two radios. No ACK has returned, no duplicate has been
-> suppressed, no retry has fired. The 29-test bench list in `the protocol spec` §9b is
+> suppressed, no retry has fired. The 27-test bench list in `docs/PROTOCOL.md` is
 > entirely unrun, and every test in it needs a second transmitter. `1.0.0` is reserved for
 > when that list passes.
 

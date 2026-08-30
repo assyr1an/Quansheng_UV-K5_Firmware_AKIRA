@@ -58,7 +58,7 @@ Factory RF calibration lives at EEPROM `0x1E00–0x1FFF`. It is **unique to your
 unrecoverable**: CHIRP does not capture it, and no replacement exists.
 
 ```sh
-python k5_eeprom_dump.py --port COM22 --radio k5-A
+python tools/k5_eeprom_dump.py --port COM22 --radio k5-A
 ```
 
 Keep the dump on **two** drives. Everything below is written on the assumption you have one.
@@ -74,13 +74,13 @@ application, not the bootloader.
 Confirm without writing anything:
 
 ```sh
-python k5_flash.py --port COM22 --handshake-only
+python tools/k5_flash.py --port COM22 --handshake-only
 ```
 
 ### 3. Write
 
 ```sh
-python k5_flash.py --port COM22 --file out/firmware.bin --yes
+python tools/k5_flash.py --port COM22 --file out/firmware.bin --yes
 ```
 
 Roughly 235 blocks. The flasher refuses to write at or above `0xF000`, so a mistake cannot
@@ -92,13 +92,13 @@ Then **power-cycle normally, no buttons held.**
 
 ```sh
 # 1. it came back, and it is the build you meant
-python k5_selftest.py --port COM22 --expect-version AKIRA
+python tools/k5_selftest.py --port COM22 --expect-version AKIRA
 
 # 2. nothing else in EEPROM moved
-python k5_guard.py --port COM22 --baseline <pre-flash>.raw --allow 0x0E80-0x0E88
+python tools/k5_guard.py --port COM22 --baseline <pre-flash>.raw --allow 0x0E80-0x0E88
 
 # 3. the key survived
-python k5_provision.py --port COM22 --show
+python tools/k5_provision.py --port COM22 --show
 ```
 
 Gate 1 of `k5_guard.py` is the one that matters: **calibration byte-identical**. If it fails,
@@ -117,10 +117,10 @@ deliberate — the alternative is falling back to something forgeable.
 
 ```sh
 # first radio only, once ever
-python k5_provision.py --port COM22 --new-key --keyfile v2-key.json
+python tools/k5_provision.py --port COM22 --new-key --keyfile v2-key.json
 
 # every radio after, same keyfile, new sender ID minted automatically
-python k5_provision.py --port COM22 --keyfile v2-key.json
+python tools/k5_provision.py --port COM22 --keyfile v2-key.json
 ```
 
 The key is generated on the host with `secrets.token_bytes`, never on the radio — its
