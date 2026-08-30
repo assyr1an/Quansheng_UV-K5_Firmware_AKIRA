@@ -133,11 +133,14 @@ unproven on the air.
 
 ## Contributing
 
-Issues and discussion are welcome — especially findings against
-[`docs/SECURITY.md`](docs/SECURITY.md) or the protocol spec. The wire format is frozen until
-the 1.0.0 bench validation completes; protocol-change proposals are best raised as issues
-first. Please do not send pull requests that touch `helper/v2frame.c`, `helper/poly1305.c` or
-`external/chacha/chacha.c` without also running `bash tools/v2-vectors-test/run.sh`.
+Issues and pull requests are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the
+ground rules (the wire format is frozen until 1.0.0; every PR states its measured flash
+delta; crypto changes must pass the vector test). Findings against
+[`docs/SECURITY.md`](docs/SECURITY.md) or the protocol spec are especially valuable, and the
+single most useful contribution right now is
+[bench-test results from your own pair of radios](docs/PROTOCOL.md#bench-validation--the-27-tests-between-09-and-100).
+Exploitable vulnerabilities: use private reporting — see the top of
+[`docs/SECURITY.md`](docs/SECURITY.md).
 
 ## Lineage and licence
 

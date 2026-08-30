@@ -3,6 +3,18 @@
 What AKIRA defends against, what it does not, and why. Read the limitations section — it is the
 honest half.
 
+## Reporting a vulnerability
+
+For an **exploitable weakness** — something an attacker could use against people already
+running this firmware — please use GitHub's **private vulnerability reporting** on this
+repository (Security tab → "Report a vulnerability") rather than a public issue, and allow
+time for a fix before disclosure.
+
+**Design findings are different**: gaps in the threat model, weaknesses in the protocol as
+specified, disagreements with a stated security claim. Those are welcome as ordinary public
+issues — adversarial review is exactly what a pre-1.0 protocol needs, and this document
+exists to be argued with.
+
 ---
 
 ## The threat model, in order
