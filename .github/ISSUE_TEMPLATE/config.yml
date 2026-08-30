@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
   - name: Building and flashing help
-    url: https://github.com/assyr1an/akira-uvk5/blob/main/docs/BUILDING.md
+    url: https://github.com/assyr1an/Quansheng_UV-K5_Firmware_AKIRA/blob/main/docs/BUILDING.md
     about: Build, backup, flash, provision, verify — read this before opening a build issue.

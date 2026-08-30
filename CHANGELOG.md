@@ -123,4 +123,4 @@ A complete replacement for the v1 wire format. 56-byte frame:
   frame length is not settled by the source, and getting it wrong breaks FSK receive in a way
   indistinguishable from any other RX failure. Poly1305 already rejects corrupted frames.
 
-[0.9]: https://github.com/assyr1an/akira-uvk5/releases/tag/0.9
+[0.9]: https://github.com/assyr1an/Quansheng_UV-K5_Firmware_AKIRA/releases/tag/0.9

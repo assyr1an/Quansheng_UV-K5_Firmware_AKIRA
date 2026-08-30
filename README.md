@@ -10,8 +10,8 @@
 Authenticated, encrypted radio-to-radio messaging that works with no network, no infrastructure
 and no third party — plus the monitoring features needed to know what is on the air around you.
 
-[![build](https://github.com/assyr1an/akira-uvk5/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/assyr1an/akira-uvk5/actions/workflows/main.yml)
-[![release](https://img.shields.io/badge/release-0.9-orange)](https://github.com/assyr1an/akira-uvk5/releases/tag/0.9)
+[![build](https://github.com/assyr1an/Quansheng_UV-K5_Firmware_AKIRA/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/assyr1an/Quansheng_UV-K5_Firmware_AKIRA/actions/workflows/main.yml)
+[![release](https://img.shields.io/badge/release-0.9-orange)](https://github.com/assyr1an/Quansheng_UV-K5_Firmware_AKIRA/releases/tag/0.9)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![crypto](https://img.shields.io/badge/AEAD-ChaCha20--Poly1305-6f42c1)](docs/PROTOCOL.md)
 
@@ -104,7 +104,7 @@ recommended.
 ## Quick start
 
 **1. Get the firmware** — download `akira-0.9.bin` (and verify against `SHA256SUMS`) from the
-[latest release](https://github.com/assyr1an/akira-uvk5/releases/tag/0.9), or build it yourself:
+[latest release](https://github.com/assyr1an/Quansheng_UV-K5_Firmware_AKIRA/releases/tag/0.9), or build it yourself:
 
 ```sh
 docker build -t akira .
