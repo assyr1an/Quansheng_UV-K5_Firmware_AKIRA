@@ -254,7 +254,7 @@ void ACTION_Scan(bool bRestart)
 void ACTION_RunSpectrum(void)
 {
 	#ifdef ENABLE_MESSENGER
-		// decision #9, confirmed on hardware: the spectrum screen is a
+		// Confirmed on hardware: the spectrum screen is a
 		// modal loop that runs no timeslices, so while it is open the radio
 		// cannot receive messages, cannot answer the PC, and cannot count a
 		// retry down. Entering it with a message outstanding silently abandons
@@ -472,7 +472,7 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 			break;
 
 		case ACTION_OPT_PANIC_WIPE_KEY:
-			// decision #10, decided 2026-08-28: two gestures.
+			// Two gestures, by design (docs/SECURITY.md, Panic wipe).
 			//
 			// The messages go on the FIRST press, always - a panic press must
 			// never be wasted waiting for confirmation. K_master goes on a

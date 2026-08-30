@@ -88,12 +88,13 @@ static V2Message_t rxDecoded;
 static uint8_t txPayload[V2_PAYLOAD_LEN];
 static uint8_t txType;
 
-// ---- v2 identity (the protocol spec section 3) ------------------------
+// ---- v2 identity (docs/PROTOCOL.md, Keys) --------------------------------
 // K_master, sender_id and the counter live at EEPROM 0x1D00 - the one gap the
 // CHIRP driver never writes (PROG_SIZE = 0x1d00), so a CHIRP upload cannot
 // clobber them. Provisioned over UART from the host; nothing here generates a
-// key, because this radio has no entropy source worth trusting
-// (the RNG measurements).
+// key, because this radio has no entropy source worth trusting - its
+// noise-derived RNG measures ~56 usable bits in 96 and fails NIST SP 800-90B
+// repetition count.
 uint8_t  gV2Key[V2_KEY_LEN];
 uint32_t gV2SenderId;
 bool     gV2Provisioned;
@@ -221,7 +222,7 @@ void MSG_FSKSendData() {
 		// something has gone wrong and we shut the TX down.
 		//
 		// v1 used 1000ms - and its comment claimed 310ms, which was simply
-		// wrong (the protocol spec section 2). A 56-byte v2 frame needs 996ms
+		// wrong (docs/PROTOCOL.md, Airtime). A 56-byte v2 frame needs 996ms
 		// of payload airtime at FSK-450 before preamble and the 4-byte sync are
 		// counted, so 1000ms would have cut the slowest modulation off mid-frame.
 		unsigned int timeout = 2000 / 5;
@@ -333,7 +334,7 @@ static bool MSG_V2ReserveCounter(void)
 		return false;
 
 	if (gV2Counter >= gV2CounterLimit) {
-		// the protocol spec section 4, hard rule: the counter must never go
+		// docs/PROTOCOL.md hard rule: the counter must never go
 		// backwards, and it must never wrap. Once the space is gone the radio
 		// stops transmitting rather than reusing a nonce - reuse under ChaCha20
 		// leaks the XOR of two plaintexts and destroys the Poly1305 key.
@@ -485,7 +486,7 @@ bool MSG_SendPacket() {
 
 	// v2 has no unauthenticated fallback, by design. Without a provisioned key,
 	// sender_id and counter there is nothing safe to transmit, so we refuse and
-	// beep rather than emitting something forgeable (the protocol spec 3, 4).
+	// beep rather than emitting something forgeable (docs/PROTOCOL.md).
 	//
 	// Reserving here, before the VFO check, can burn a counter block if the TX
 	// is then refused. That is deliberate: counters only have to be UNIQUE, and
@@ -556,7 +557,7 @@ bool MSG_SendPacket() {
 		}
 
 		// The staged plaintext has served its purpose. Do not leave a copy of it
-		// sitting in RAM for a capture to find (the security design).
+		// sitting in RAM for a capture to find (docs/SECURITY.md).
 		memset(txPayload, 0, sizeof(txPayload));
 
 		BK4819_DisableDTMF();
@@ -697,15 +698,15 @@ void MSG_Init() {
 	cIndex = 0;
 	// NOTE: this does NOT wipe K_master. The key lives in EEPROM 0x1D00 and
 	// survives, so a captured radio still yields every message ever recorded off
-	// the air. That is a deliberate open question, not an oversight - see
-	// decision #10.
+	// the air. That is deliberate - destroying the key is the separate,
+	// confirmed gesture (docs/SECURITY.md, Panic wipe).
 }
 
 void MSG_SendAck(uint32_t ackSenderId, uint32_t ackCounter) {
 	// An authenticated ACK. Its payload names the exact (sender_id, counter)
 	// being acknowledged and is covered by the MAC, so a stale or replayed ACK
 	// can no longer be taken as confirmation of a different transaction - the
-	// v1 failure the crypto review flagged (the crypto review).
+	// v1 failure the crypto review flagged.
 	//
 	// The ACK gets its own counter and its own type, so its nonce can never
 	// collide with the message it acknowledges.
@@ -1003,7 +1004,7 @@ void MSG_Send(const char *cMessage){
 // No volatile, no guard, no race. MSG_StorePacket() looks interrupt-driven but
 // is not: CheckRadioInterrupts() is called only from APP_TimeSlice10ms(), the
 // same main-loop context as APP_TimeSlice500ms() and MSG_SendPacket(). The only
-// true ISR is SystickHandler(), which touches none of this (the codebase notes).
+// true ISR is SystickHandler(), which touches none of this.
 bool MSG_IsTransactionPending(void)
 {
 	return gAckPending || (msgRetriesLeft > 0);
@@ -1195,7 +1196,7 @@ void MSG_ConfigureFSK(bool rx)
 	// never raises an interrupt for a v2 frame and vice versa, so the two
 	// protocols are invisible to each other at the hardware layer. No version
 	// confusion to handle, no downgrade path, no v1 garbage reaching a parser
-	// that now has a MAC to check (the protocol spec section 6). The `ver`
+	// that now has a MAC to check (docs/PROTOCOL.md, Versioning). The `ver`
 	// byte inside the frame is kept for evolution WITHIN v2.
 	//
 	// 4B 35 9C 2E - 16 of 32 bits set, no run longer than three, chosen so the
@@ -1213,7 +1214,7 @@ void MSG_ConfigureFSK(bool rx)
 	// < 7:0> sync byte 3
 	BK4819_WriteRegister(BK4819_REG_5B, 0x9C2E);
 
-	// CRC LEFT DISABLED - deliberately, against the protocol spec section 6.
+	// CRC LEFT DISABLED - deliberately (docs/PROTOCOL.md, Versioning).
 	//
 	// The spec proposed 0x5625 -> 0x5665 (bit 6), copying AirCopy, as "free
 	// rejection of corrupted frames before they reach the MAC check". It is

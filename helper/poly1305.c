@@ -1,8 +1,7 @@
 /* poly1305-donna, 32-bit reference implementation.
  * Public domain (Andrew Moon), https://github.com/floodyberry/poly1305-donna
  *
- * Verbatim from the host tools crypto-spike/poly1305.c apart from the header
- * split and the removal of the unused one-shot poly1305_auth() wrapper - v2
+ * Verbatim from upstream apart from the header split and the removal of the unused one-shot poly1305_auth() wrapper - v2
  * feeds the AEAD's padded input incrementally rather than building a single
  * contiguous MAC buffer, so the wrapper would only cost flash.
  *

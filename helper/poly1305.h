@@ -1,8 +1,7 @@
 /* poly1305-donna, 32-bit reference implementation.
  * Public domain (Andrew Moon), https://github.com/floodyberry/poly1305-donna
  *
- * Promoted verbatim from the host tools crypto-spike/poly1305.c, where it was
- * verified against the RFC 8439 section 2.5.2 test vector and measured at
+ * Verified against the RFC 8439 section 2.5.2 test vector and measured at
  * 1,572 bytes of .text on this target before being adopted.
  *
  * Poly1305 is a ONE-TIME authenticator. Its key must never be reused across

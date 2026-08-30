@@ -36,7 +36,7 @@ to issue a sender_id already recorded in the keyfile for a different radio.
 
 The key crosses a UART link that is obfuscated, not encrypted. That is fine
 here - the threat model is physical capture, not someone sitting on the
-programming cable (the security design).
+programming cable (docs/SECURITY.md, Limitations).
 """
 
 import argparse

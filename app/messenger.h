@@ -45,7 +45,7 @@ extern char cMessage[PAYLOAD_LENGTH];
 // Feature #2 - bounded RAM ring log. 16 entries x 32 bytes = 512 bytes RAM
 // against ~8,900 free. RAM ONLY: nothing here is ever written to EEPROM, which
 // is the point - a message log that survives a power cycle is a liability under
-// the threat model (the security design).
+// the threat model (docs/SECURITY.md).
 // 16 is a power of two so the wrap is a mask, not a divide - the Cortex-M0 has
 // no divide instruction.
 #define MSG_LOG_SIZE   16u
@@ -94,7 +94,7 @@ typedef enum ModemModulation {
 // where the 4 bytes for the 16-byte Poly1305 tag came from.
 extern uint8_t gMsgFrame[V2_FRAME_LEN];
 
-// v2 identity, loaded from EEPROM 0x1D00 at boot (the protocol spec section 3).
+// v2 identity, loaded from EEPROM 0x1D00 at boot (docs/PROTOCOL.md, Keys).
 // Provisioned over UART from the host, where real entropy exists - there is no
 // key derivation and nothing is generated on the radio.
 #define V2_EEPROM_KEY_ADDR       0x1D00u   // 32 bytes
@@ -110,12 +110,12 @@ void MSG_V2LoadIdentity(void);
 // Destroy K_master, sender_id and the counter - in EEPROM as well as RAM.
 // This is the half of the panic wipe that matters under the threat model:
 // MSG_Init() clears the messages on the radio, but the key is what decrypts
-// every message anyone recorded off the air (the protocol spec section 10).
+// every message anyone recorded off the air (docs/SECURITY.md, Limitations).
 // After this the radio refuses to transmit until it is re-provisioned over the
-// cable (decision #10).
+// cable (docs/SECURITY.md, Panic wipe).
 void MSG_V2WipeIdentity(void);
 
-// Replay / duplicate suppression (the protocol spec section 7).
+// Replay / duplicate suppression (docs/PROTOCOL.md, ACK/replay/retry).
 //
 // Four entries of (sender_id, counter) = 32 bytes. RAM only, and deliberately:
 // the table records who we have been talking to, which is exactly the kind of

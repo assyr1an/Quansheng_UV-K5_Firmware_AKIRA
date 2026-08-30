@@ -30,13 +30,13 @@
  *     part, because a log is by definition always-changing data.
  *  2. Threat model. A record of what we monitored and when must not survive a
  *     power cycle, for the same reasons the message log must not
- *     (the security design).
+ *     (docs/SECURITY.md).
  *
  * COVERAGE LIMIT — CONFIRMED ON HARDWARE 2026-08-27, not merely predicted.
  * The hook is CHFRSCANNER_Found(), which sees only the channel/frequency
  * scanner. The spectrum analyser runs a separate modal loop that never calls it
  * — and that loop was measured to block the UART entirely for as long as its
- * screen is open (the codebase notes section 13 #20). So this logs "what the
+ * screen is open (measured: 90 consecutive UART failures). So this logs "what the
  * scanner heard", never "everything the radio heard". Do not describe it
  * otherwise.
  */

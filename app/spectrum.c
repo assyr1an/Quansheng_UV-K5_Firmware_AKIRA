@@ -792,7 +792,7 @@ static void DrawStatus() {
 #ifdef ENABLE_MESSENGER
   // Spectrum owns the radio and runs no timeslices, so messenger RX is dead for
   // as long as this screen is up - measured on hardware at 90 consecutive UART
-  // failures open against 1281/0 closed (decision #9). State it rather
+  // failures open against 1281/0 closed. State it rather
   // than let the operator discover it by missing a message.
   //
   // Only shown when the messenger would otherwise be listening; if RX is off
@@ -1262,7 +1262,7 @@ static void RenderStill() {
 // Which action the operator has bound to this key and press length.
 //
 // Spectrum polls its own keyboard and never reaches ACTION_Handle(), which is
-// why a bound panic wipe was dead here (the codebase notes section 13 #18). Rather
+// why a bound panic wipe was dead here. Rather
 // than hard-code a key, we read the SAME EEPROM bindings ACTION_Handle() uses,
 // so the gesture the operator configured is the gesture that works - including
 // on the one screen where they are most likely to be caught monitoring.

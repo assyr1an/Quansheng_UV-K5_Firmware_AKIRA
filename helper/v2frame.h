@@ -19,12 +19,12 @@
 
 /* Messenger protocol v2 - frame codec.
  *
- * Spec: the workspace the protocol spec
- * Host reference: the host tools v2-reference/v2_frame.py
- * Known-answer vectors: the host tools v2-reference/vectors.json
+ * Spec: docs/PROTOCOL.md
+ * Host reference: tools/v2-reference/v2_frame.py
+ * Known-answer vectors: tools/v2-reference/vectors.json
  *
  * THIS FILE DELIBERATELY TOUCHES NO HARDWARE. It includes chacha and poly1305
- * and nothing else, so the v2 vector test  can compile it on the
+ * and nothing else, so tools/v2-vectors-test/ can compile it on the
  * host and check it byte-for-byte against vectors.json. That turns "is the
  * firmware crypto right?" into a matching exercise instead of a question we
  * could only answer with two radios.
@@ -87,8 +87,8 @@ typedef struct {
 /* nonce = sender_id[4] || counter[4] || type[1] || 00 00 00
  *
  * Deterministic, never random. Nonces need UNIQUENESS, not unpredictability,
- * which is exactly why the measured weakness of the hardware RNG
- * (the RNG measurements) stops mattering here. `type` keeps a message and
+ * which is exactly why the measured weakness of the hardware RNG stops
+ * mattering here. `type` keeps a message and
  * its own ACK on separate nonces. */
 void V2_BuildNonce(uint8_t nonce[V2_NONCE_LEN],
                    uint32_t sender_id, uint32_t counter, uint8_t type);

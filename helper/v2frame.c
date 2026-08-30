@@ -30,7 +30,7 @@
  * derivation, and that is the point: the spec originally derived a FIXED K_mac
  * and used it as the Poly1305 key, which would have allowed arbitrary forgery
  * after two messages. RFC 8439's per-message one-time key removes both the
- * flaw and the need for a KDF. See the protocol spec section 3.
+ * flaw and the need for a KDF. See docs/PROTOCOL.md, Construction.
  */
 
 #include <string.h>
