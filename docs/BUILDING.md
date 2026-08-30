@@ -104,6 +104,15 @@ python tools/k5_provision.py --port COM22 --show
 Gate 1 of `k5_guard.py` is the one that matters: **calibration byte-identical**. If it fails,
 stop.
 
+### If it goes wrong
+
+A radio that no longer boots and no longer enters the bootloader (hold PTT, switch on) is not
+necessarily dead: the DP32G030 exposes SWD, and the flash can be recovered with a cheap debug
+probe. [amnemonic's UV-K5 repository](https://github.com/amnemonic/Quansheng_UV-K5_Firmware)
+carries OpenOCD configs for exactly this, plus the community's stock-firmware archive for
+reflashing back to factory. The one thing SWD cannot bring back is factory RF calibration you
+never backed up — which is why the backup step above is not optional.
+
 Flashing does not touch EEPROM at all — a verified flash shows the entire 8 KB unchanged, same
 SHA-256. `0x0E80–0x0E88` is the exception and is benign: the VFO channel indices the radio saves
 on power-off.

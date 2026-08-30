@@ -91,9 +91,16 @@ the honest half: [`docs/SECURITY.md`](docs/SECURITY.md).
 
 ## Hardware
 
-Quansheng UV-K5, UV-K5(8) and UV-K6. A USB programming cable is required for flashing and for
-key provisioning — the K5's is a K-type 2-pin connector, and an FTDI-based cable is
-recommended.
+Quansheng UV-K5, UV-K5(8) and UV-K6 — **original (V1) hardware only.** A USB programming cable
+is required for flashing and for key provisioning — the K5's is a K-type 2-pin connector, and
+an FTDI-based cable is recommended.
+
+> [!WARNING]
+> **Not compatible with the newer "UV-K5 V2" or "V3" hardware revisions** sold under the same
+> name since 2025. Those are different platforms with their own firmware lines, and no firmware
+> in this lineage runs on them. **How to tell:** check the stock firmware version — `2.01.xx`
+> (K5/K5(8)) or `3.00.xx` (K6) is supported V1 hardware; `1.xx` ("py030", V2) or `7.xx` (V3)
+> is not. When buying a radio for this firmware, confirm the listing is V1.
 
 > [!CAUTION]
 > **Back up before you flash.** Factory RF calibration at EEPROM `0x1E00–0x1FFF` is unique to
