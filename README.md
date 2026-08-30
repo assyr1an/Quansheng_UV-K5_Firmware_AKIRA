@@ -1,29 +1,74 @@
-# Open re-implementation of the Quansheng UV-K5 v2.1.27 firmware
+# AKIRA
 
-<img src="images/radio_picture.jpg" width=300 align="right"/>
+**Custom firmware for the Quansheng UV-K5, built for household emergency preparedness.**
 
-This repository is a fork of [Egzumer firmware](https://github.com/egzumer/uv-k5-firmware-custom) plus my changes:
+Authenticated, encrypted radio-to-radio messaging that works with no network, no
+infrastructure and no third party — plus the monitoring features needed to know what is on
+the air around you.
 
-* `ENABLE_SPECTRUM_CHANNEL_SCAN` this enables spectrum channel scan mode (enter by going into memory mode and press F+5, this allows SUPER fast channel scanning (**4.5x faster than regular scanning**), regular scan of 200 memory channels takes roughly 18 seconds, **spectrum memory scan takes roughly 4 seconds**, if you have less channels stored i.e 50 - the spectrum memory scan will take only **1 second**
-* **NUNU Protocol** - message hopping mesh network functionality which allows to extend the range of infrastructure-less communications via intermediate stations (nodes), more info at [Mesh network](https://github.com/kamilsss655/uv-k5-firmware-custom/wiki/43-%E2%80%90-Mesh-network)
-* `ENABLE_ENCRYPTION` - ChaCha20 256 bit encryption for the messenger, more info at [Encryption](https://github.com/kamilsss655/uv-k5-firmware-custom/wiki/44-%E2%80%90-Encryption#details)
-* Fixed AM AGC so **AM demodulation is crystal clear**, no audible clicks, no need for `AM_FIX`.
-* `RxOff` menu setting offsets the receive frequency by any specified amount in the range of `0-150Mhz` for use with upconverters. Allows to fine tune frequency (in `1kHz` steps) as opposed to other implementations that use hardcoded offsets. (**IMPORTANT: Make sure you set this value to 0 if not using an upconverter, when used for the first time. Otherwise it might load some random offset from EEPROM.**)
-* `ENABLE_SPECTRUM_COPY_VFO` allowing to exit the spectrum and fine tuning screen with PTT button and copy current peak frequency, modulation, step, bandwidth to VFO. Also entering spectrum will carry these settings from VFO (full integration). Now to enter fine tuning screen in spectrum press MENU button. This allows you to save and respond to the frequencies found much faster.
-* `ENABLE_SPECTRUM_SHOW_CHANNEL_NAME` shows channel number and channel name of the peak frequency in spectrum
-* `ENABLE_ADJUSTABLE_RX_GAIN_SETTINGS` keeps the rx gain settings set in spectrum mode after exit (otherwise these are always overwritten to default value), this makes much more sense considering that we have a radio with user adjustable gain so why not use it to adjust to current radio conditions, maximum gain allows to greatly increase reception in scan memory channels mode (in this configuration default gain settings are only set at boot and when exiting AM modulation mode to set it to sane value after am fix)
-* `VOXSen` fixed and improved VOX sensitivity setting from menu. Added `VoxDel` - VOX delay setting allowing to set value to `0` for no VOX delay which might be useful for packet radio enthusiasts (APRS etc.).
-* `SqTone` configurable squelch tail tones and 180* phase shift tail when in CTCSS mode
+> **Status: 0.9 — feature complete, not yet validated over the air.**
+> Everything below is built, reviewed and CI-green, and runs on real hardware. But no message
+> has yet crossed between two radios: no ACK has returned, no duplicate has been suppressed,
+> no retry has fired. `1.0.0` is reserved for when the 29-test bench list passes on a pair.
 
-> [!NOTE]
-> You might be interested in my new open-source project [ESPRI](https://github.com/kamilsss655/ESPRI).
+## What AKIRA adds
 
-> [!TIP]
-> Due to recent CHIRP update many custom firmwares (including this one) are not supported and require a custom [uvk5-chirp-driver](https://github.com/kamilsss655/uvk5-chirp-driver).
+**Messenger protocol v2** — a complete replacement for the v1 wire format.
+
+* **RFC 8439 ChaCha20-Poly1305** on every frame, with the header as additional authenticated
+  data, so the version, type, sender and counter are authenticated alongside the payload.
+* **No key derivation at all.** A 256-bit master key is provisioned over USB from the host's
+  CSPRNG. v1 expanded a 16-byte secret with FNV-1, which collapsed the key to at most 2⁶⁴
+  values regardless of input.
+* **Deterministic nonces** — `sender_id ‖ counter ‖ type`. Nonces need uniqueness, not
+  unpredictability, which removes any dependence on the radio's very weak hardware RNG.
+* **Replay and duplicate suppression** — a per-sender counter window. A duplicate is
+  re-acknowledged but never re-displayed; an older frame is dropped silently.
+* **Authenticated ACKs** that name the exact message they acknowledge, so a stale ACK cannot
+  confirm a different transaction.
+* **Automatic retry** by byte-identical retransmission, consuming no additional nonce.
+* **A different FSK sync word from v1**, so the two protocols are invisible to each other at
+  the hardware layer.
+
+**Security and monitoring**
+
+* **Two-gesture panic wipe** — one press clears every plaintext buffer; a confirmed second
+  press destroys the master key in EEPROM as well as RAM. It works from the main screen *and*
+  from inside the spectrum analyser.
+* **On-radio key fingerprint** (`KeyID`) so two operators can confirm they hold the same key
+  with no computer present.
+* **Priority-channel scanning** with a configurable interval, **scan-hit auto-store**, a
+  **bounded activity log**, and a **16-entry message ring** with paging.
+* **Host tooling** — EEPROM backup and verification, firmware flashing, key provisioning,
+  channel programming, a self-test, and a safety gate that refuses to let a write proceed if
+  factory RF calibration has changed.
+
+**Removed on purpose:** AirCopy (it clones the encryption key over the air, and would clone the
+per-radio sender identity into nonce reuse) and the v1 `EncKey` / `MsgEnc` menus (they edited a
+secret protocol v2 does not read).
+
+## Lineage and licence
+
+AKIRA is a fork of [kamilsss655/uv-k5-firmware-custom](https://github.com/kamilsss655/uv-k5-firmware-custom)
+(the "nunu" firmware), which is itself a fork of
+[Egzumer](https://github.com/egzumer/uv-k5-firmware-custom), derived in turn from
+[joaquimorg](https://github.com/joaquimorg) and
+[DualTachyon](https://github.com/DualTachyon)'s open re-implementation of the stock firmware.
+
+Licensed under the Apache License 2.0. Copyright notices in inherited files belong to their
+original authors and are unchanged; files original to AKIRA carry their own. **The vast
+majority of this radio's behaviour — the RF driver, the UI, the spectrum analyser, the scanner
+— is upstream work, and AKIRA would not exist without it.**
+
+Forked at upstream v.20.5. Note that the mesh "NUNU Protocol" advertised by upstream landed in
+v.21.0 and is **not** present in this tree — AKIRA's messenger is a flat broadcast group.
 
 > [!WARNING]
-> By using the firmware provided, users are responsible for ensuring compliance with all local laws and regulations governing the use of such technology. The author of the firmware shall not be held liable for any misuse or unlawful activities conducted by the user. It is the user's sole responsibility to use the firmware in a legal and responsible manner. By proceeding to use the firmware, users agree to abide by all applicable laws and regulations. Please note that this firmware has been created for scientific research purposes only.
+> By using the firmware provided, users are responsible for ensuring compliance with all local laws and regulations governing the use of such technology. The author of the firmware shall not be held liable for any misuse or unlawful activities conducted by the user. It is the user's sole responsibility to use the firmware in a legal and responsible manner. By proceeding to use the firmware, users agree to abide by all applicable laws and regulations.
 The firmware provided does not come with any form of warranty, express or implied. Users understand that there is a risk that the firmware may potentially brick their radio device. The author of the firmware shall not be held responsible for any damage caused to the user's radio device as a result of using the firmware. By proceeding to use the firmware, users agree to do so at their own risk and understand that the author will not be liable for any adverse consequences that may arise. It is the user's responsibility to proceed with caution and understand the potential risks involved in using the firmware.
+
+<sub>Upstream documentation follows. Some of it describes features AKIRA has changed or removed;
+where the two disagree, this file's AKIRA sections are correct for this tree.</sub>
 
 ---
 
